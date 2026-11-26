@@ -1,0 +1,451 @@
+syntax = "proto3";
+
+// ============================================================
+// Feishu/Lark Internal Protobuf Protocol
+// Reverse-engineered from Feishu Web Client
+// Reference: https://github.com/cv-cat/LarkAgentX
+// ============================================================
+
+// --- Transport Layer ---
+
+message Frame {
+  optional uint64 seqid = 1;
+  optional uint64 logid = 2;
+  optional int32 service = 3;
+  optional int32 method = 4;
+  repeated ExtendedEntry headers = 5;
+  optional string payloadEncoding = 6;
+  optional string payloadType = 7;
+  optional bytes payload = 8;
+}
+
+message Packet {
+  optional string sid = 1;
+  optional PayloadType payloadType = 2;
+  optional int32 cmd = 3;
+  optional uint32 status = 4;
+  optional bytes payload = 5;
+  optional string cid = 6;
+}
+
+enum PayloadType {
+  TYPE_UNKNOWN = 0;
+  PB2 = 1;
+  JSON = 2;
+}
+
+message ExtendedEntry {
+  optional string key = 1;
+  optional string value = 2;
+}
+
+// --- Message Types ---
+
+enum Type {
+  UNKNOWN = 0;
+  POST = 2;
+  FILE = 3;
+  TEXT = 4;
+  IMAGE = 5;
+  SYSTEM = 6;
+  AUDIO = 7;
+  STICKER = 10;
+  CARD = 14;
+  MEDIA = 15;
+}
+
+enum FromType {
+  UNKNOWN_FROMTYPE = 0;
+  USER = 1;
+  BOT = 2;
+}
+
+enum ChatType {
+  UNKNOWN_CHAT_TYPE = 0;
+  P2P = 1;
+  GROUP = 2;
+  TOPIC_GROUP = 3;
+}
+
+// --- Send Message (cmd=5) ---
+
+message PutMessageRequest {
+  optional Type type = 1;
+  optional Content content = 2;
+  optional string chatId = 3;
+  optional string rootId = 4;
+  optional string parentId = 5;
+  optional string cid = 6;
+  optional bool isNotified = 7;
+  optional bool sendToChat = 8;
+  optional int32 version = 9;
+}
+
+// --- Receive Messages (WebSocket push) ---
+
+message PushMessagesRequest {
+  map<string, MessageEntity> messages = 1;
+  map<string, bool> participatedMessageIds = 3;
+  map<string, bool> forcePush = 8;
+  map<string, bool> messagesAtMe = 9;
+}
+
+message MessageEntity {
+  optional string id = 1;
+  optional Type type = 2;
+  optional string fromId = 3;
+  optional int64 createTime = 4;
+  optional bytes content = 5;
+  optional MessageStatus status = 6;
+  optional FromType fromType = 7;
+  optional string rootId = 8;
+  optional string parentId = 9;
+  optional string chatId = 10;
+  optional int64 lastModifyTime = 11;
+  optional string cid = 12;
+  optional int32 position = 13;
+  optional int64 updateTime = 14;
+  optional bool isNotified = 15;
+  optional string threadId = 20;
+  optional ChatType chatType = 46;
+
+  enum MessageStatus {
+    UNKNOWN_STATUS = 0;
+    NORMAL = 1;
+    DELETED = 2;
+    MODIFIED = 3;
+  }
+}
+
+// --- Content ---
+
+message Content {
+  optional string text = 1;
+  optional string imageKey = 2;
+  optional string title = 3;
+  // Image metadata fields (v1.3.9 — reverse-engineered via brute-force probe;
+  // see scripts/explore-image-minimize.js). Required for IMAGE messages on the
+  // cookie-protobuf path: imageKey + thumbnailKey(10) is the minimum the
+  // gateway accepts. width(4) / height(5) / mimeType(8) / fileSize(9) are
+  // optional but commonly present in the real wire format.
+  optional int32 imageWidth = 4;
+  optional int32 imageHeight = 5;
+  optional string fileKey = 6;
+  optional string audioKey = 7;
+  optional string mimeType = 8;
+  optional int64 fileSize = 9;
+  optional string thumbnailKey = 10;
+  optional string fileName = 11;
+  optional RichText richText = 14;
+  optional string stickerSetId = 24;
+  optional string stickerId = 25;
+}
+
+message TextContent {
+  optional string text = 1;
+  optional RichText richText = 3;
+}
+
+message PostContent {
+  optional string title = 1;
+  optional string text = 2;
+  optional RichText richText = 6;
+}
+
+message RichText {
+  repeated string elementIds = 1;
+  optional string innerText = 2;
+  optional RichTextElements elements = 3;
+  // Index fields: each "*Ids" is a list of elemIds (pointing into the dictionary)
+  // that the server needs to register as special-type elements. Discovered from
+  // Feishu Web bundle — atIds=6 is what makes @-mentions actually notify.
+  repeated string imageIds = 5;
+  repeated string atIds = 6;
+  repeated string anchorIds = 7;
+  repeated string i18nIds = 8;
+  repeated string mediaIds = 9;
+  repeated string docsIds = 10;
+  repeated string interactiveIds = 11;
+  repeated string mentionIds = 12;
+  optional int32 version = 13;
+  repeated string atUserGroupIds = 14;
+}
+
+message RichTextElements {
+  map<string, RichTextElement> dictionary = 1;
+}
+
+message RichTextElement {
+  optional Tag tag = 1;
+  map<string, string> style = 2;
+  optional bytes property = 3;
+  repeated string childIds = 4;
+
+  enum Tag {
+    UNKNOWN_TAG = 0;
+    TEXT = 1;
+    IMG = 2;
+    P = 3;
+    FIGURE = 4;
+    AT = 5;
+    A = 6;
+  }
+}
+
+message TextProperty {
+  optional string content = 1;
+}
+
+// For AT (@-mention) elements. Both fields are required in the real schema;
+// `content` is marked deprecated but still required on the wire.
+message AtProperty {
+  optional string userId = 1;
+  optional string content = 2;
+}
+
+// For A (hyperlink) elements.
+message AnchorProperty {
+  optional string href = 1;
+  optional string content = 2;
+  optional string textContent = 3;
+}
+
+// --- Chat Operations ---
+
+// Create a P2P or group chat (cmd=13).
+message PutChatRequest {
+  optional ChatType type = 1;
+  repeated string userIds = 2;
+  optional string groupName = 3;
+  optional string groupDesc = 4;
+  optional bool isPublic = 5;
+  repeated string chatterIds = 6;
+  optional string cid = 16;
+}
+
+message PutChatResponse {
+  optional Chat chat = 1;
+}
+
+// Invite chatters to an existing chat (cmd=47).
+message PutChatChatterRequest {
+  optional string chatId = 1;
+  repeated string chatterIds = 2;
+  optional bool isInviteAtChatters = 3;
+}
+
+message PutChatChatterResponse {
+  optional Chat chat = 1;
+}
+
+// Read a page of chatters (cmd=44).
+message PullChatChattersRequest {
+  optional string chatId = 1;
+  optional bool needChatters = 2;
+  optional int64 cursor = 3;
+  optional string offset = 4;
+  optional int32 limit = 5;
+}
+
+message PullChatChattersResponse {
+  map<string, Chatter> chatters = 1;
+  map<string, Chatter> updateChatters = 3;
+  optional int64 nextCursor = 5;
+  optional string nextOffset = 9;
+}
+
+// Resolve user and bot IDs before selecting the correct invitation path (cmd=46).
+message PullChattersByIdsRequest {
+  repeated string chatterIds = 1;
+  optional bool needBotInfo = 2;
+  optional bool notSubscribeChatters = 3;
+}
+
+message PullChattersByIdsResponse {
+  map<string, Chatter> chatters = 1;
+}
+
+// Read chat details (cmd=64) and message positions (cmd=43).
+message PullChatsByIdsRequest {
+  repeated string chatIds = 1;
+}
+
+message PullChatsByIdsResponse {
+  map<string, Chat> chats = 1;
+  repeated string unauthorizedChatIds = 2;
+}
+
+// Edit or dissolve a group (cmd=72). Only explicitly listed fields change.
+message PatchGroupChatRequest {
+  optional int64 chatId = 1;
+  optional string name = 2;
+  optional string description = 4;
+  optional bool isDissolved = 18;
+  repeated UpdateFields updateFields = 999;
+
+  enum UpdateFields {
+    UPDATE_FIELDS_UNSPECIFIED = 0;
+    NAME = 1;
+    DESCRIPTION = 3;
+    IS_DISSOLVED = 16;
+  }
+}
+
+message PatchGroupChatResponse {
+  optional Chat chat = 1;
+}
+
+message PullMessagesByPositionsRequest {
+  optional string chatId = 1;
+  repeated int32 positions = 2;
+}
+
+message PullMessagesByPositionsResponse {
+  map<int32, MessageEntity> messages = 1;
+  repeated int32 burnedMessages = 8;
+  repeated int32 expiredMessages = 9;
+  optional bool hasMore = 11;
+  optional int32 nextPosition = 12;
+}
+
+message Chatter {
+  optional string id = 1;
+  optional string name = 2;
+  optional int32 type = 9;
+}
+
+// Get group info (cmd=64)
+message GetGroupInfoRequest {
+  optional string chatId = 1;
+}
+
+message GetGroupInfoResponse {
+  optional Chat chat = 1;
+}
+
+message Chat {
+  optional string id = 1;
+  optional ChatTypeEnum type = 2;
+  optional string lastMessageId = 3;
+  optional string name = 4;
+  optional string ownerId = 6;
+  optional int32 newMessageCount = 7;
+  optional int64 updateTime = 9;
+  optional string description = 11;
+  optional int32 memberCount = 12;
+  optional bool isPublic = 14;
+  optional int32 lastMessagePosition = 15;
+  optional int32 userCount = 16;
+  optional int64 createTime = 18;
+  optional string tenantId = 25;
+  optional bool isDissolved = 30;
+  optional bool isCrossTenant = 41;
+  optional Announcement announcement = 24;
+
+  enum ChatTypeEnum {
+    UNKNOWN_CHAT = 0;
+    P2P_CHAT = 1;
+    GROUP_CHAT = 2;
+    TOPIC_GROUP_CHAT = 3;
+  }
+
+  message Announcement {
+    optional string content = 1;
+    optional int64 updateTime = 2;
+    optional string lastEditorId = 3;
+    optional string docUrl = 4;
+  }
+}
+
+// --- Search (cmd=11021) ---
+
+message UniversalSearchRequest {
+  optional SearchCommonRequestHeader header = 1;
+}
+
+message SearchCommonRequestHeader {
+  optional string searchSession = 1;
+  optional int32 sessionSeqId = 2;
+  optional string query = 3;
+  optional string paginationToken = 4;
+  optional SearchContext searchContext = 5;
+  optional string locale = 6;
+  optional int32 pageSize = 11;
+
+  message SearchContext {
+    optional string tagName = 1;
+    repeated EntityItem entityItems = 2;
+    optional CommonFilter commonFilter = 3;
+    optional string sourceKey = 5;
+  }
+}
+
+message EntityItem {
+  optional SearchEntityType type = 1;
+  optional EntityFilter filter = 2;
+
+  message EntityFilter {
+    oneof filter {
+      GroupChatFilter groupChatFilter = 2;
+    }
+  }
+}
+
+message GroupChatFilter {}
+
+message CommonFilter {
+  optional bool includeOuterTenant = 1;
+}
+
+enum SearchEntityType {
+  SEARCH_UNKNOWN = 0;
+  SEARCH_USER = 1;
+  SEARCH_BOT = 2;
+  SEARCH_GROUP_CHAT = 3;
+}
+
+message UniversalSearchResponse {
+  optional SearchResponseHeader header = 1;
+  repeated SearchResult results = 2;
+}
+
+message SearchResponseHeader {
+  optional int32 total = 3;
+  optional bool hasMore = 4;
+}
+
+message SearchResult {
+  optional string id = 1;
+  optional SearchEntityType type = 2;
+  optional string titleHighlighted = 3;
+  optional string summaryHighlighted = 4;
+  optional string avatarKey = 6;
+}
+
+// --- User Info (cmd=5023) ---
+
+message GetUserInfoRequest {
+  optional int64 chatId = 1;
+  optional int64 userId = 3;
+  optional int32 userType = 4;
+}
+
+message UserInfo {
+  optional UserInfoDetail userInfoDetail = 1;
+}
+
+message UserInfoDetail {
+  optional Detail detail = 2;
+}
+
+message Detail {
+  optional bytes nickname = 2;
+  optional bytes nickname1 = 4;
+  optional bytes nickname4 = 17;
+  repeated LocaleEntry locales = 18;
+}
+
+message LocaleEntry {
+  optional string key_string = 1;
+  optional string translation = 2;
+}

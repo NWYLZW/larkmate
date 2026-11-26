@@ -1,0 +1,21 @@
+{
+  "name": "feishu-user-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A small, user-identity Feishu CLI with a modular gateway client",
+  "type": "module",
+  "bin": {
+    "feishu-user": "bin/feishu-user.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/feishu-user.js && node --test"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "protobufjs": "^8.6.0"
+  }
+}

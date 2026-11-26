@@ -1,4 +1,4 @@
-# 飞书用户 CLI
+# LarkMate
 
 以已登录的飞书用户身份进行搜索、聊天及群组管理。该工具复用现有 `feishu-user-plugin` 的 Cookie 配置，独立运行，无需启动 Agent 服务。
 

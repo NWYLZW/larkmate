@@ -49,15 +49,16 @@ export class LarkMateClient {
     })) };
   }
 
-  async chats({ limit = 50, cursor, parent } = {}) {
+  async chats({ limit = 50, cursor, parent, scope = 'inbox' } = {}) {
+    if (!['inbox', 'done'].includes(scope)) throw new FeishuError('INVALID_ARGUMENT', 'scope must be inbox or done.');
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new FeishuError('INVALID_ARGUMENT', 'limit must be between 1 and 100.');
     for (const [value, label] of [[cursor, 'cursor'], [parent, 'parent']]) {
       if (value != null && !/^[0-9]{1,19}$/.test(String(value))) throw new FeishuError('INVALID_ARGUMENT', label + ' must be a numeric identifier.');
     }
     const response = await this.gateway.call(1000, 'PullFeedCardsRequest', {
-      type: 1, pullType: cursor ? 2 : 1, count: limit,
+      type: scope === 'done' ? 2 : 1, pullType: cursor ? 2 : 1, count: limit,
       ...(cursor ? { cursor: String(cursor) } : {}), ...(parent ? { parentCardId: String(parent) } : {}),
-    }, { operation: 'list-chats' });
+    }, { operation: 'list-chats', version: '5.7.0' });
     if (!response.packet.payload?.length) throw new FeishuError('INVALID_RESPONSE', 'No inbox page was returned.');
     let page;
     try { page = this.gateway.decode('PullFeedCardsResponse', response.packet.payload); }
@@ -68,11 +69,14 @@ export class LarkMateClient {
       if (card.type === 5) { boxes.push({ id: String(card.id) }); continue; }
       if (card.type !== 1) continue;
       const chat = page.chats?.[card.id];
+      const unreadCount = chat && Object.hasOwn(chat, 'newMessageCount') ? chat.newMessageCount : null;
+      const manualUnread = card.feedCardField ? (card.feedCardField.markAsUnread?.unread ?? false) : null;
+      const unread = unreadCount > 0 || manualUnread === true ? true : unreadCount === 0 && manualUnread === false ? false : null;
       items.push({ id: String(card.id), name: chat?.name || '', type: types[chat?.type] || 'unknown',
-        updatedAt: Object.hasOwn(card, 'updateTime') ? String(card.updateTime) : null });
+        updatedAt: Object.hasOwn(card, 'updateTime') ? String(card.updateTime) : null, unreadCount, manualUnread, unread });
     }
     const nextCursor = Object.hasOwn(page, 'nextCursor') && String(page.nextCursor) !== '0' ? String(page.nextCursor) : null;
-    return { items, boxes, nextCursor, scope: 'inbox' };
+    return { items, boxes, nextCursor, scope };
   }
 
   async openChat(userId) {

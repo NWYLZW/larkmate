@@ -3,6 +3,8 @@ import { Command, CommanderError } from 'commander';
 import { loadCookie } from '../src/credentials.js';
 import { Gateway } from '../src/gateway.js';
 import { LarkMateClient } from '../src/client.js';
+import { SessionControls } from '../src/session-controls.js';
+import { Meetings } from '../src/meetings.js';
 import { FeishuError } from '../src/errors.js';
 
 const program = new Command();
@@ -12,6 +14,10 @@ program.exitOverride();
 
 const collect = (value, previous) => [...previous, value];
 const output = value => process.stdout.write(`${JSON.stringify({ ok: true, ...value }, null, 2)}\n`);
+
+async function controls() {
+  return new SessionControls(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) }));
+}
 
 async function client() {
   const cookie = await loadCookie({ file: program.opts().credentialsFile });
@@ -30,12 +36,67 @@ program.command('chats').description('List a page of inbox chats without opening
   .option('--cursor <number>', 'continue with the returned cursor')
   .option('--parent <id>', 'list a box returned by a previous page')
   .option('--type <type>', 'filter this page: p2p, group or topic_group')
+  .option('--scope <scope>', 'inbox or done', 'inbox')
+  .option('--state <state>', 'filter this page: read or unread')
   .action(async options => {
     if (options.type && !['p2p', 'group', 'topic_group'].includes(options.type)) throw new FeishuError('INVALID_ARGUMENT', 'Invalid chat type.');
-    const page = await (await client()).chats({ limit: Number(options.limit), cursor: options.cursor, parent: options.parent });
+    if (options.state && !['read', 'unread'].includes(options.state)) throw new FeishuError('INVALID_ARGUMENT', 'Invalid read state.');
+    const page = await (await client()).chats({ limit: Number(options.limit), cursor: options.cursor, parent: options.parent, scope: options.scope });
     if (options.type) page.items = page.items.filter(item => item.type === options.type);
+    if (options.state) { page.unknownReadState = page.items.filter(item => item.unread == null).length; page.items = page.items.filter(item => item.unread === (options.state === 'unread')); }
     output(page);
   });
+
+program.command('pinned').description('List pinned conversations.').action(async () => output(await (await controls()).pinned()));
+program.command('marked').description('List conversations marked with a flag.').action(async () => output(await (await controls()).marked()));
+program.command('labels').description('List personal conversation labels.').action(async () => output(await (await controls()).labels()));
+program.command('label-chats').description('List conversations in a label.')
+  .requiredOption('--label <id>', 'numeric label ID').action(async o => output(await (await controls()).labelChats(o.label)));
+program.command('label-create').description('Create a personal conversation label.')
+  .requiredOption('--name <name>', 'label name').action(async o => output(await (await controls()).createLabel(o.name)));
+program.command('label-rename').description('Rename a conversation label.')
+  .requiredOption('--label <id>', 'numeric label ID').requiredOption('--name <name>', 'new name')
+  .action(async o => output(await (await controls()).renameLabel(o.label, o.name)));
+program.command('label-delete').description('Delete a personal conversation label.')
+  .requiredOption('--label <id>', 'numeric label ID').action(async o => output(await (await controls()).deleteLabel(o.label)));
+for (const [command, enabled] of [['label-add', true], ['label-remove', false]]) {
+  program.command(command).description(enabled ? 'Add a chat to a manual label.' : 'Remove a chat from a manual label.')
+    .requiredOption('--label <id>', 'numeric label ID').requiredOption('--chat <id>', 'numeric chat ID')
+    .action(async o => output(await (await controls()).labelChat(o.label, o.chat, enabled)));
+}
+program.command('chat-state').description('Read pin, flag, notification and read state for a conversation.')
+  .requiredOption('--chat <id>', 'numeric chat ID').action(async o => output(await (await controls()).state(o.chat)));
+for (const [command, method, enabled, description] of [
+  ['pin', 'pin', true, 'Pin a conversation.'], ['unpin', 'pin', false, 'Unpin a conversation.'],
+  ['mark', 'mark', true, 'Flag a conversation.'], ['unmark', 'mark', false, 'Remove a conversation flag.'],
+  ['mute', 'setMute', true, 'Mute a conversation.'], ['unmute', 'setMute', false, 'Unmute a conversation.'],
+  ['done', 'setDone', true, 'Move a conversation to done.'], ['inbox', 'setDone', false, 'Return a conversation to inbox.'],
+  ['box', 'setBox', true, 'Move a conversation into the box.'], ['unbox', 'setBox', false, 'Remove a conversation from the box.'],
+]) {
+  program.command(command).description(description).requiredOption('--chat <id>', 'numeric chat ID')
+    .action(async o => output(await (await controls())[method](o.chat, enabled)));
+}
+program.command('unread').description('Mark a conversation manually unread.')
+  .requiredOption('--chat <id>', 'numeric chat ID').action(async o => output(await (await controls()).setUnread(o.chat)));
+program.command('read').description('Mark a conversation read through its latest visible position.')
+  .requiredOption('--chat <id>', 'numeric chat ID').action(async o => output(await (await controls()).setRead(o.chat)));
+
+program.command('meeting-search').description('Search past meetings via the optional official lark-cli user account.')
+  .option('--query <text>', 'meeting title or 9-digit meeting number')
+  .option('--start <time>', 'inclusive start date or ISO time').option('--end <time>', 'inclusive end date or ISO time')
+  .option('--mine', 'filter meetings attended by the lark-cli user')
+  .option('--participant-ids <ids>', 'comma-separated participant open IDs')
+  .option('--organizer-ids <ids>', 'comma-separated organizer open IDs')
+  .option('--page-size <number>', 'number per page, 1 to 30').option('--page-token <token>', 'continue the search')
+  .action(async o => output(await new Meetings().search(o)));
+for (const [command, method, description] of [
+  ['meeting-info', 'detail', 'Read meeting details and artifact identifiers.'],
+  ['meeting-note', 'note', 'Read the AI meeting note document.'],
+  ['meeting-minutes', 'minutes', 'Read the linked recording summary, todos and chapters.'],
+]) {
+  program.command(command).description(description).requiredOption('--meeting <id>', 'long meeting ID from meeting-search')
+    .action(async o => output(await new Meetings()[method](o.meeting)));
+}
 
 program.command('chat-open').description('Open or find a private chat by numeric user or bot ID.')
   .requiredOption('--id <id>', 'numeric ID from search')

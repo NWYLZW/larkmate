@@ -15,6 +15,8 @@ LarkMate 是一个独立的飞书用户身份命令行工具，可以查询会�
 ```sh
 larkmate chats --limit 50
 larkmate chats --type group --cursor "$NEXT_CURSOR"
+larkmate chats --state unread
+larkmate chats --scope done --state read
 larkmate chats --parent "$BOX_ID"
 larkmate search --query '机器人名称'
 larkmate chat-open --id "$MEMBER_ID"
@@ -24,11 +26,63 @@ larkmate history --chat "$CHAT_ID" --pages 3 --query '关键词' --sender "$MEMB
 larkmate history --chat "$CHAT_ID" --after 1700000000 --before 1800000000
 ```
 
-`chats` 只读当前收件箱，每次最多取 100 张卡片，`nextCursor` 用于继续翻页。返回的 `boxes` 是折叠会话盒子，使用 `--parent` 单独读取；`--type` 仅筛选当前页，其他类型的卡片不会计入结果。它不是所有历史会话的完整清单。`chat-open` 会打开或创建私聊，不是只读操作。
+`chats` 默认只读收件箱，`--scope done` 可读已完成分组，每次最多取 100 张卡片，`nextCursor` 用于继续翻页。返回的 `boxes` 是折叠会话盒子，使用 `--parent` 单独读取；`--type` 仅筛选当前页，其他类型的卡片不会计入结果。`--state read|unread` 也仅筛选当前页；无法判断状态的会话不列入结果，并计入 `unknownReadState`。它不是所有历史会话的完整清单。`chat-open` 会打开或创建私聊，不是只读操作。
 
 `history` 默认从最新消息位置向前读取，每页最多 100 个位置，`--pages` 最多扫描 100 页。结果按位置从旧到新排列；`nextStart` 和 `nextLimit` 可用于续读更早的位置。位置可能不存在、已删除或不可见，`omittedPositions` 表示未返回的位置数，不能当作消息数量。关键词、发送者及 Unix 秒级时间筛选只作用于本次扫描的范围，不代表全量搜索；按时间筛选时，`missingTimestamps` 统计因缺少时间而无法判断的消息数。部分会话没有返回最新位置时，需通过 `--start` 指定位置。
 
 文本和富文本会返回可解析文本，文件和图片尽可能返回资源元数据；卡片等未支持解析的类型保留类型和消息 ID，正文可能为空。
+
+## 会话管理
+
+`pinned` 和 `marked` 分别查询置顶会话和旗帜标记的会话；`chat-state` 读取单个会话的置顶、标记、免打扰、未读、已完成及收纳状态。
+
+```sh
+larkmate pinned
+larkmate marked
+larkmate chat-state --chat "$CHAT_ID"
+larkmate pin --chat "$CHAT_ID"
+larkmate unpin --chat "$CHAT_ID"
+larkmate mark --chat "$CHAT_ID"
+larkmate unmark --chat "$CHAT_ID"
+larkmate unread --chat "$CHAT_ID"
+larkmate read --chat "$CHAT_ID"
+larkmate mute --chat "$CHAT_ID"
+larkmate unmute --chat "$CHAT_ID"
+larkmate done --chat "$CHAT_ID"
+larkmate inbox --chat "$CHAT_ID"
+larkmate box --chat "$CHAT_ID"
+larkmate unbox --chat "$CHAT_ID"
+```
+
+`mark` 是会话右键菜单中的旗帜“标记”。`read` 会将阅读位置推进到调用时的最新可见消息，并清除手动未读标记；`unread` 可能把已完成会话重新放回收件箱。`done` / `inbox` 管理已完成状态，`box` / `unbox` 管理会话收纳。状态更改后会读回核验；`submitted_unconfirmed` 表示已提交但未能确认，应先查状态再决定是否重试。
+
+## 会话标签
+
+```sh
+larkmate labels
+larkmate label-chats --label "$LABEL_ID"
+larkmate label-create --name '项目协作'
+larkmate label-rename --label "$LABEL_ID" --name '项目讨论'
+larkmate label-add --label "$LABEL_ID" --chat "$CHAT_ID"
+larkmate label-remove --label "$LABEL_ID" --chat "$CHAT_ID"
+larkmate label-delete --label "$LABEL_ID"
+```
+
+标签 ID 取自 `labels` 或 `label-create`。会话添加和移除目前只支持手动管理的标签；自动规则标签不支持修改成员。删除标签会删除整个个人标签，请使用准确的标签 ID。
+
+## 历史会议与纪要
+
+会议功能使用可选的官方 `lark-cli` 和其已登录的**用户身份**；它的账号和权限独立于 LarkMate 的 Cookie。结果中的 `source` 会显示实际使用的身份，使用前请确认是预期账号。没有安装、登录或缺少权限时，命令会返回明确错误，不会自动切换为机器人身份。
+
+```sh
+larkmate meeting-search --mine --start 2026-11-01 --end 2026-11-27
+larkmate meeting-search --query '会议标题或九位会议号'
+larkmate meeting-info --meeting "$MEETING_ID"
+larkmate meeting-note --meeting "$MEETING_ID"
+larkmate meeting-minutes --meeting "$MEETING_ID"
+```
+
+`meeting-search` 只搜索已结束会议，`--mine` 限定为所选官方用户参加的会议；结果支持通过 `--page-token` 翻页，时间范围最多一个月。后续命令使用搜索结果中的长数字会议 ID，不是九位会议号。`meeting-note` 读取会议关联的智能纪要文档；`meeting-minutes` 查询录制妙记的总结、待办和章节。智能纪要和录制妙记是不同产物，可能分别缺失或有不同的访问权限。
 
 ## 发送消息和文件
 

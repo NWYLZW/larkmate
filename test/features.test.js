@@ -22,7 +22,7 @@ test('inbox returns page cursor, boxes and read-only chat IDs', async () => {
     }) } };
   } };
   const result = await new LarkMateClient(gateway).chats({ limit: 10 });
-  assert.deepEqual(result.items, [{ id: '123', type: 'p2p', name: 'Example', updatedAt: '100' }]);
+  assert.deepEqual(result.items, [{ id: '123', type: 'p2p', name: 'Example', updatedAt: '100', unreadCount: null, manualUnread: null, unread: null }]);
   assert.deepEqual(result.boxes, [{ id: '456' }]);
   assert.equal(result.nextCursor, '789');
   assert.equal(calls[0].command, 1000);
@@ -98,4 +98,17 @@ test('history returns file metadata and applies bounded time filters', async () 
   assert.deepEqual(page.items[0].resource, { key: 'key', name: 'report.txt', size: '123', mime: null });
   assert.equal(page.missingTimestamps, 1);
   await assert.rejects(c.historyPages({ chatId: '500', after: 2, before: 1 }), { code: 'INVALID_ARGUMENT' });
+});
+
+test('feed read state distinguishes manual marks, message counts and unavailable data', async () => {
+  const gateway = { decode, async call() { return { packet: { payload: encode('PullFeedCardsResponse', {
+    cards: [
+      { id: '100', type: 1, feedCardField: { markAsUnread: { unread: true } } },
+      { id: '101', type: 1, feedCardField: { markAsUnread: { unread: false } } },
+      { id: '102', type: 1 },
+    ], chats: { 100: { id: '100', newMessageCount: 0 }, 101: { id: '101', newMessageCount: 0 }, 102: { id: '102' } },
+  }) } }; } };
+  const result = await new LarkMateClient(gateway).chats({ scope: 'done' });
+  assert.equal(result.scope, 'done');
+  assert.deepEqual(result.items.map(x => x.unread), [true, false, null]);
 });

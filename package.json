@@ -1,9 +1,26 @@
 {
   "name": "larkmate",
   "version": "0.1.0",
-  "private": true,
   "description": "A small, user-identity Feishu CLI with a modular gateway client",
   "type": "module",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NWYLZW/larkmate.git"
+  },
+  "bugs": "https://github.com/NWYLZW/larkmate/issues",
+  "homepage": "https://github.com/NWYLZW/larkmate#readme",
+  "files": [
+    "bin/",
+    "src/",
+    "proto/",
+    "skills/",
+    "third_party/",
+    "INSTALL.md"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "bin": {
     "larkmate": "bin/larkmate.js"
   },

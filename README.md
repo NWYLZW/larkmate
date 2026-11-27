@@ -4,7 +4,14 @@ LarkMate 是一个独立的飞书用户身份命令行工具，可以查询会�
 
 ## 安装与登录
 
-需要 Node.js 20 或更新版本。在项目目录执行 `npm install`，使用 `node bin/larkmate.js --help` 查看命令；执行 `npm link` 后可直接使用 `larkmate`。
+需要 Node.js 20 或更新版本。安装 CLI 和 Agent Skill：
+
+```sh
+npm install -g larkmate --registry=https://registry.npmjs.org/
+npx --registry=https://registry.npmjs.org/ skills add NWYLZW/larkmate --skill larkmate -g
+```
+
+完整步骤及源码安装方式见 [快速安装](INSTALL.md)，Agent 使用指引见 [LarkMate Skill](skills/larkmate/SKILL.md)。
 
 默认从 `~/.larkmate/credentials.json` 读取登录信息，格式为 `{ "cookie": "..." }`。将目录和文件分别设为仅当前用户可访问（权限 `700` 和 `600`）。也可以通过 `LARKMATE_HOME` 指定配置目录，或通过 `LARKMATE_COOKIE` 提供 Cookie；`--credentials-file` 可指定其他相同格式的文件。读取顺序为指定文件、环境变量、配置目录。不要把真实 Cookie 写进命令参数、聊天记录或代码仓库。Cookie 过期后需更新，再用 `larkmate status` 检查。
 

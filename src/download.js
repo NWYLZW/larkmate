@@ -2,7 +2,7 @@ import { open } from 'node:fs/promises';
 import { FeishuError, requireInt64Id, requireText } from './errors.js';
 
 // Uses the same message-scoped access check as the web client; never follows redirects with the Cookie.
-export async function downloadFile(gateway, { chatId, messageId, key, output }) {
+export async function downloadFile(gateway, { chatId, messageId, key, output, maxBytes = Infinity }) {
   requireInt64Id(chatId, 'chat ID');
   requireInt64Id(messageId, 'message ID');
   requireText(output, 'output path');
@@ -26,12 +26,16 @@ export async function downloadFile(gateway, { chatId, messageId, key, output }) 
   let bytes = 0;
   try {
     if (!response.body) throw new Error('empty response');
-    for await (const chunk of response.body) { await handle.writeFile(chunk); bytes += chunk.length; }
+    for await (const chunk of response.body) {
+      if (bytes + chunk.length > maxBytes) throw new FeishuError('FILE_TOO_LARGE', 'The download exceeds the configured file limit.');
+      await handle.writeFile(chunk); bytes += chunk.length;
+    }
     const length = response.headers.get('content-length');
     const encoding = response.headers.get('content-encoding');
     if (length && (!encoding || encoding === 'identity') && /^\d+$/.test(length) && BigInt(bytes) !== BigInt(length)) throw new Error('incomplete response');
     return { output, bytes, messageId };
-  } catch {
+  } catch (error) {
+    if (error instanceof FeishuError && error.code === 'FILE_TOO_LARGE') throw error;
     throw new FeishuError('DOWNLOAD_INCOMPLETE', 'The download stopped; the output file is incomplete.', { output, bytes });
   } finally { await handle.close(); }
 }

@@ -11,7 +11,7 @@ import { exportMessages } from '../src/export-messages.js';
 import { brokerCall, brokerCommands, brokerProxy, createBrokerToken, loadBrokerToken, loadPolicy, startBroker } from '../src/agent-broker.js';
 
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.8');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.9');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.option('--broker <path>', 'use a restricted local broker socket (or LARKMATE_BROKER)');
 program.option('--broker-token-file <path>', 'read the agent token (or LARKMATE_BROKER_TOKEN_FILE)');
@@ -256,8 +256,9 @@ program.command('download-file').description('Download a message file or image t
   .requiredOption('--chat <id>', 'numeric chat ID')
   .requiredOption('--message <id>', 'numeric message ID')
   .requiredOption('--key <key>', 'file or image key from history')
+  .option('--position <number>', 'message position from history (required by a restricted broker)')
   .requiredOption('--output <path>', 'new local output file')
-  .action(async o => output(await (await client()).downloadFile({ chatId: o.chat, messageId: o.message, key: o.key, output: o.output })));
+  .action(async o => output(await (await client()).downloadFile({ chatId: o.chat, messageId: o.message, key: o.key, output: o.output, ...(o.position != null ? { position: Number(o.position) } : {}) })));
 program.command('message-link').description('Get the native link to a message.')
   .requiredOption('--chat <id>', 'numeric chat ID')
   .requiredOption('--message <id>', 'numeric message ID')

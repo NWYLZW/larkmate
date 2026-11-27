@@ -5,5 +5,6 @@
   "minuteTokens": [],
   "allowAllChats": false,
   "allowAllMinutes": false,
-  "allowGlobal": false
+  "allowGlobal": false,
+  "maxFileBytes": 104857600
 }

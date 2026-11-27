@@ -146,6 +146,7 @@ test('download uses message-scoped authorization, streams to a private new file,
   assert.equal((await stat(output)).mode & 0o777, 0o600);
   await assert.rejects(downloadFile(gateway, { chatId: '500', messageId: bigId, key: 'file_key_1', output }), { code: 'DOWNLOAD_WRITE_FAILED' });
   assert.equal(await readFile(output, 'utf8'), 'contents');
+  await assert.rejects(downloadFile(gateway, { chatId: '500', messageId: bigId, key: 'file_key_1', output: join(dir, 'too-large'), maxBytes: 7 }), { code: 'FILE_TOO_LARGE' });
   gateway.request = async () => new Response('short', { headers: { 'content-length': '20' } });
   await assert.rejects(downloadFile(gateway, { chatId: '500', messageId: bigId, key: 'file_key_1', output: join(dir, 'partial') }), { code: 'DOWNLOAD_INCOMPLETE' });
   assert.equal(await readFile(join(dir, 'partial'), 'utf8'), 'short');

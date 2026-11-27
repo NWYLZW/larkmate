@@ -41,6 +41,7 @@ LarkMate 可以由持有 Cookie 的账户启动本地代理，再让 Agent 使�
 | `allowAllChats` | 设为 `true` 时允许访问任意会话，默认为 `false`。 |
 | `allowAllMinutes` | 设为 `true` 时允许访问任意妙记，默认为 `false`。 |
 | `allowGlobal` | 设为 `true` 时允许在 `allow` 中额外授权账号级操作，默认为 `false`。 |
+| `maxFileBytes` | 单个文件传输的字节上限，范围为 1 至 104857600，默认 104857600（100 MiB）。图片仍以 10 MiB 为上限。 |
 
 未知字段、未知命令、重复授权、错误类型以及 `*` 都会导致代理拒绝启动。`allowAllChats`、`allowAllMinutes` 和 `allowGlobal` 不会自行开放命令；对应命令仍须出现在 `allow` 中。
 
@@ -52,7 +53,11 @@ LarkMate 可以由持有 Cookie 的账户启动本地代理，再让 Agent 使�
 
 `status` 以及用于搜索用户、机器人、群聊的 `search` 需要开启 `allowGlobal`。跨会话搜索、会话及收藏列表、标签管理，以及仅凭消息 ID 操作的链接、编辑、撤回、转发、收藏和表情命令，除须在 `allow` 中各自授权外，还必须同时开启 `allowGlobal` 和 `allowAllChats`——这是因为代理无法仅凭消息 ID 判断其是否属于受限会话。群创建、邀请成员和机器人保护设置同样需要同时开启这两个开关。开启这些权限会扩大 Agent 可访问的信息范围或可执行的操作范围，请按需选择。
 
-代理不提供 `send-file`、`send-image` 和 `download-file`，以免调用方驱使持有 Cookie 的进程读写任意本地路径。`messages-export` 和 `minutes-export` 的输出文件则由 Agent 自己的进程创建，受 Agent 自身的文件权限约束。
+`send-file`、`send-image` 与 `download-file` 均可单独加入 `allow` 列表，并受 `chatIds` 约束。发送时，由 Agent 进程读取本地文件并传输内容；下载时，由 Agent 进程创建输出文件。代理不接受 Agent 指定的代理端本地路径，而是在私有临时目录中处理中转文件，并在正常结束或失败时将其删除。若进程异常终止，可能会遗留临时文件，因此部署方应保护并按需清理代理账户的临时目录。
+
+如需限制 Agent 可访问的本地目录，部署方应通过配置 Agent 的系统账户或容器权限来实现。策略文件中的会话与大小限制不会约束 Agent 自身的文件系统，也无法阻止其向代理发送已读取的数据。请仅向 Agent 挂载或开放其业务所需的目录，禁止其读取 Cookie 及其他敏感文件。
+
+在受限代理模式下执行下载时，须提供 `history` 返回的消息 `position`、消息 ID 与资源键。代理会重新读取该会话的对应位置，仅在三者完全匹配时才执行下载；若无法核对，则会拒绝请求。普通直连模式不要求提供 `--position`。
 
 授权导出即意味着授权读取对应内容，调用方仍可通过其他方式保存这些数据。对于仅需查看内容的 Agent，建议优先授予目标会话的只读命令；仅在确需执行修改、发送消息或邀请成员等操作时，再开放相应命令。
 
@@ -65,6 +70,9 @@ export LARKMATE_BROKER=/absolute/path/run/agent.sock
 export LARKMATE_BROKER_TOKEN_FILE=/absolute/path/agent.token
 larkmate broker-info
 larkmate history --chat "$CHAT_ID" --limit 20
+larkmate send-file --chat "$CHAT_ID" --file /agent/files/report.pdf
+larkmate send-image --chat "$CHAT_ID" --file /agent/files/image.png
+larkmate download-file --chat "$CHAT_ID" --message "$MESSAGE_ID" --key "$RESOURCE_KEY" --position "$POSITION" --output /agent/files/attachment
 ```
 
 也可以通过全局选项 `--broker` 和 `--broker-token-file` 指定路径。`broker-info` 会返回当前连接的权限配置，不会返回 Cookie 或令牌。当 Agent 收到 `POLICY_DENIED`，或导出错误的 `cause` 为 `POLICY_DENIED` 时，应停止该操作并说明权限不足，由所有者决定是否调整策略；不能改用直连模式尝试绕过。

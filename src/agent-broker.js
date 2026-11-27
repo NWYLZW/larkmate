@@ -5,6 +5,7 @@ import { chmod, lstat, open, realpath, unlink, writeFile } from 'node:fs/promise
 import { dirname, isAbsolute, join } from 'node:path';
 import { FeishuError } from './errors.js';
 import { minuteToken } from './minutes.js';
+import { handleFileRequest, brokerUpload, brokerDownload } from './agent-files.js';
 
 // The socket policy is enforced in this process, never by the calling agent.
 // An explicit mapping prevents callers from reaching arbitrary object methods.
@@ -37,11 +38,13 @@ const routes = {
   read: ['controls', 'setRead', 'chatArg'], unread: ['controls', 'setUnread', 'chatArg'],
   'minutes-list': ['minutes', 'list', 'allMinutes'], 'minutes-export': ['minutes', 'transcript', 'minute'],
   'minutes-access-info': ['minutes', 'accessInfo', 'minute'], 'minutes-request-access': ['minutes', 'requestAccess', 'minute'],
+  'send-file': ['files', 'upload', 'file'], 'send-image': ['files', 'upload', 'file'],
+  'download-file': ['files', 'download', 'file'],
 };
 const writes = new Set(['send', 'pin', 'unpin', 'mark', 'unmark', 'mute', 'unmute', 'done', 'inbox', 'box', 'unbox', 'read', 'unread',
   'label-create', 'label-rename', 'label-delete', 'label-add', 'label-remove', 'chat-open', 'group-create', 'group-invite',
   'group-update', 'group-dissolve', 'group-bot-protection', 'message-edit', 'message-forward', 'message-recall', 'favorite-add',
-  'favorite-remove', 'reaction-add', 'reaction-remove', 'minutes-request-access']);
+  'favorite-remove', 'reaction-add', 'reaction-remove', 'minutes-request-access', 'send-file', 'send-image']);
 
 export function brokerCommands() {
   return Object.entries(routes).map(([command, [, , scope]]) => ({ command,
@@ -57,16 +60,18 @@ const invalidPolicy = () => { throw new FeishuError('POLICY_INVALID', 'The broke
 const numeric = value => typeof value === 'string' && /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n;
 
 export function parsePolicy(raw) {
-  if (!only(raw, ['version', 'allow', 'chatIds', 'minuteTokens', 'allowAllChats', 'allowAllMinutes', 'allowGlobal']) || raw.version !== 1 || !Array.isArray(raw.allow)) invalidPolicy();
+  if (!only(raw, ['version', 'allow', 'chatIds', 'minuteTokens', 'allowAllChats', 'allowAllMinutes', 'allowGlobal', 'maxFileBytes']) || raw.version !== 1 || !Array.isArray(raw.allow)) invalidPolicy();
   if (raw.allow.some(x => typeof x !== 'string' || !Object.hasOwn(routes, x)) || new Set(raw.allow).size !== raw.allow.length) invalidPolicy();
   const chatIds = Object.hasOwn(raw, 'chatIds') ? raw.chatIds : [];
   const minuteTokens = Object.hasOwn(raw, 'minuteTokens') ? raw.minuteTokens : [];
   if (!Array.isArray(chatIds) || chatIds.some(x => !numeric(x)) || new Set(chatIds).size !== chatIds.length) invalidPolicy();
   if (!Array.isArray(minuteTokens) || minuteTokens.some(x => typeof x !== 'string' || !/^[A-Za-z0-9_-]{10,128}$/.test(x)) || new Set(minuteTokens).size !== minuteTokens.length) invalidPolicy();
   for (const key of ['allowAllChats', 'allowAllMinutes', 'allowGlobal']) if (Object.hasOwn(raw, key) && typeof raw[key] !== 'boolean') invalidPolicy();
+  const maxFileBytes = Object.hasOwn(raw, 'maxFileBytes') ? raw.maxFileBytes : 100 * 1024 * 1024;
+  if (!Number.isSafeInteger(maxFileBytes) || maxFileBytes < 1 || maxFileBytes > 100 * 1024 * 1024) invalidPolicy();
   return Object.freeze({ version: 1, allow: Object.freeze([...raw.allow]), chatIds: Object.freeze([...chatIds]),
     minuteTokens: Object.freeze([...minuteTokens]), allowAllChats: raw.allowAllChats === true,
-    allowAllMinutes: raw.allowAllMinutes === true, allowGlobal: raw.allowGlobal === true });
+    allowAllMinutes: raw.allowAllMinutes === true, allowGlobal: raw.allowGlobal === true, maxFileBytes });
 }
 
 export async function loadPolicy(path) {
@@ -113,6 +118,7 @@ export function authorize(policy, request) {
   if (scope === 'global' && !policy.allowGlobal) denied();
   if (['allChats', 'labelTrue', 'labelFalse', 'reactionAdd', 'reactionRemove'].includes(scope) && (!policy.allowGlobal || !policy.allowAllChats)) denied();
   if (scope === 'allMinutes' && (!policy.allowGlobal || !policy.allowAllMinutes)) denied();
+  if (scope === 'file' && (args.length !== 1 || !only(args[0], ['chatId']) || !chatAllowed(args[0].chatId))) denied();
   if (['labelTrue', 'labelFalse'].includes(scope) && (args.length !== 3 || args[2] !== (scope === 'labelTrue'))) denied();
   if (['reactionAdd', 'reactionRemove'].includes(scope) && (args.length !== 1 || !only(args[0], ['messageId', 'emoji', 'remove']) || args[0].remove !== (scope === 'reactionRemove'))) denied();
   if (['chatArg', 'chatTrue', 'chatFalse'].includes(scope)) {
@@ -147,13 +153,22 @@ function safeError(error) {
 }
 
 export function createBrokerHandler({ policy, token, getServices }) {
+  let transfers = 0;
   return async (req, res) => {
     const answer = (status, body) => { if (!res.headersSent) res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'connection': 'close' }); res.end(JSON.stringify(body)); };
-    if (req.method !== 'POST' || req.url !== '/v1/call' || !/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) return answer(400, { ok: false, error: { code: 'INVALID_REQUEST', message: 'Invalid broker request.' } });
+    if (req.method !== 'POST' || !['/v1/call', '/v1/file'].includes(req.url)) return answer(400, { ok: false, error: { code: 'INVALID_REQUEST', message: 'Invalid broker request.' } });
     const authorization = req.headers.authorization || '';
     const provided = Buffer.from(authorization.startsWith('Bearer ') ? authorization.slice(7) : '');
     const expected = Buffer.from(token);
     if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return answer(401, { ok: false, error: { code: 'BROKER_AUTH_FAILED', message: 'Invalid broker token.' } });
+    if (req.url === '/v1/file') {
+      if (transfers >= 2) return answer(429, { ok: false, error: { code: 'BROKER_BUSY', message: 'Too many file transfers.' } });
+      transfers++;
+      try { await handleFileRequest({ req, res, policy, getServices, authorize, answer }); }
+      finally { transfers--; }
+      return;
+    }
+    if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) return answer(400, { ok: false, error: { code: 'INVALID_REQUEST', message: 'Invalid broker request.' } });
     let chunks = [], size = 0, command, dispatched = false;
     try {
       for await (const chunk of req) { size += chunk.length; if (size > 65536) throw new FeishuError('INVALID_REQUEST', 'Broker request is too large.'); chunks.push(chunk); }
@@ -161,6 +176,7 @@ export function createBrokerHandler({ policy, token, getServices }) {
       command = request?.command;
       if (only(request, ['command']) && request.command === 'broker-info') return answer(200, { ok: true, policy });
       const { service, method, args } = authorize(policy, request);
+      if (service === 'files') denied(); // File bytes use a separate endpoint, never owner-local paths.
       const services = await getServices();
       dispatched = true;
       const data = await services[service][method](...args);
@@ -233,6 +249,8 @@ export async function brokerCall(socketPath, request, tokenFile) {
 export function brokerProxy(socketPath, service, getCommand, tokenFile) {
   return new Proxy({}, { get(_target, method) {
     if (method === 'then' || typeof method !== 'string') return undefined;
+    if (service === 'client' && ['sendFile', 'sendImage'].includes(method)) return options => brokerUpload(socketPath, tokenFile, getCommand(), options);
+    if (service === 'client' && method === 'downloadFile') return options => brokerDownload(socketPath, tokenFile, options);
     return (...args) => brokerCall(socketPath, { command: getCommand(), service, method, args }, tokenFile);
   } });
 }

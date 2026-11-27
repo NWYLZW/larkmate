@@ -70,19 +70,21 @@ larkmate label-delete --label "$LABEL_ID"
 
 标签 ID 取自 `labels` 或 `label-create`。会话添加和移除目前只支持手动管理的标签；自动规则标签不支持修改成员。删除标签会删除整个个人标签，请使用准确的标签 ID。
 
-## 历史会议与纪要
+## 录制妙记与文字记录
 
-会议功能使用可选的官方 `lark-cli` 和其已登录的**用户身份**；它的账号和权限独立于 LarkMate 的 Cookie。结果中的 `source` 会显示实际使用的身份，使用前请确认是预期账号。没有安装、登录或缺少权限时，命令会返回明确错误，不会自动切换为机器人身份。
+使用 LarkMate 的 Cookie 查询当前用户可访问的录制妙记，并导出完整的文字记录。妙记列表按飞书返回的分页进行展示，导出时可直接传入妙记链接或列表中的 `object_token`。
 
 ```sh
-larkmate meeting-search --mine --start 2026-11-01 --end 2026-11-27
-larkmate meeting-search --query '会议标题或九位会议号'
-larkmate meeting-info --meeting "$MEETING_ID"
-larkmate meeting-note --meeting "$MEETING_ID"
-larkmate meeting-minutes --meeting "$MEETING_ID"
+larkmate minutes-list --limit 20
+larkmate minutes-list --cursor "$CURSOR"
+larkmate minutes-access-info --minute "$MINUTES_URL"
+larkmate minutes-export --minute "$MINUTES_URL" --output transcript.txt
+larkmate minutes-export --minute "$MINUTES_URL" --format markdown --no-speakers --no-timestamps --output transcript.md
 ```
 
-`meeting-search` 只搜索已结束会议，`--mine` 限定为所选官方用户参加的会议；结果支持通过 `--page-token` 翻页，时间范围最多一个月。后续命令使用搜索结果中的长数字会议 ID，不是九位会议号。`meeting-note` 读取会议关联的智能纪要文档；`meeting-minutes` 查询录制妙记的总结、待办和章节。智能纪要和录制妙记是不同产物，可能分别缺失或有不同的访问权限。
+导出内容默认包含说话人与时间戳，可通过 `--no-speakers` 和 `--no-timestamps` 分别关闭。支持导出为本地 TXT 或 Markdown 文件；若未指定 `--output`，文本内容将输出至 JSON 结果的 `content` 字段中。为防止意外覆盖现有文件，指定的输出路径必须尚不存在。当字幕超过 10000 段或飞书返回的数据不完整时，程序将直接报错并终止，不会写入残缺记录。
+
+`minutes-access-info` 仅用于查询妙记所有者及是否允许申请权限，不会实际发起申请。当前版本尚不支持创建飞书文档、申请访问权限，或查询没有录制妙记的历史会议。
 
 ## 发送消息和文件
 

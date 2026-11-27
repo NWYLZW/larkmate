@@ -4,7 +4,8 @@ import { loadCookie } from '../src/credentials.js';
 import { Gateway } from '../src/gateway.js';
 import { LarkMateClient } from '../src/client.js';
 import { SessionControls } from '../src/session-controls.js';
-import { Meetings } from '../src/meetings.js';
+import { Minutes, formatTranscript } from '../src/minutes.js';
+import { writeFile } from 'node:fs/promises';
 import { FeishuError } from '../src/errors.js';
 
 const program = new Command();
@@ -22,6 +23,10 @@ async function controls() {
 async function client() {
   const cookie = await loadCookie({ file: program.opts().credentialsFile });
   return new LarkMateClient(new Gateway({ cookie }));
+}
+
+async function minutes() {
+  return new Minutes(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) }));
 }
 
 program.command('status').description('Check the current user login.')
@@ -81,22 +86,31 @@ program.command('unread').description('Mark a conversation manually unread.')
 program.command('read').description('Mark a conversation read through its latest visible position.')
   .requiredOption('--chat <id>', 'numeric chat ID').action(async o => output(await (await controls()).setRead(o.chat)));
 
-program.command('meeting-search').description('Search past meetings via the optional official lark-cli user account.')
-  .option('--query <text>', 'meeting title or 9-digit meeting number')
-  .option('--start <time>', 'inclusive start date or ISO time').option('--end <time>', 'inclusive end date or ISO time')
-  .option('--mine', 'filter meetings attended by the lark-cli user')
-  .option('--participant-ids <ids>', 'comma-separated participant open IDs')
-  .option('--organizer-ids <ids>', 'comma-separated organizer open IDs')
-  .option('--page-size <number>', 'number per page, 1 to 30').option('--page-token <token>', 'continue the search')
-  .action(async o => output(await new Meetings().search(o)));
-for (const [command, method, description] of [
-  ['meeting-info', 'detail', 'Read meeting details and artifact identifiers.'],
-  ['meeting-note', 'note', 'Read the AI meeting note document.'],
-  ['meeting-minutes', 'minutes', 'Read the linked recording summary, todos and chapters.'],
-]) {
-  program.command(command).description(description).requiredOption('--meeting <id>', 'long meeting ID from meeting-search')
-    .action(async o => output(await new Meetings()[method](o.meeting)));
-}
+program.command('minutes-list').description('List accessible recording minutes with the LarkMate Cookie.')
+  .option('--limit <number>', 'items per page, 1 to 100', '20')
+  .option('--cursor <cursor>', 'continue from the previous page')
+  .action(async o => output(await (await minutes()).list({ limit: Number(o.limit), cursor: o.cursor })));
+
+program.command('minutes-access-info').description('Check who owns a recording and whether an access request is allowed.')
+  .requiredOption('--minute <token-or-url>', 'recording minutes token or URL')
+  .action(async o => output(await (await minutes()).accessInfo(o.minute)));
+
+program.command('minutes-export').description('Export a complete recording transcript.')
+  .requiredOption('--minute <token-or-url>', 'recording minutes token or URL')
+  .option('--format <format>', 'txt or markdown', 'txt')
+  .option('--no-speakers', 'omit speaker names')
+  .option('--no-timestamps', 'omit timestamps')
+  .option('--output <path>', 'write a new local file; otherwise return text as JSON')
+  .action(async o => {
+    if (!['txt', 'markdown'].includes(o.format)) throw new FeishuError('INVALID_ARGUMENT', 'Format must be txt or markdown.');
+    const result = await (await minutes()).transcript(o.minute);
+    const content = formatTranscript(result.entries, o);
+    if (o.output) {
+      try { await writeFile(o.output, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 }); }
+      catch (error) { throw new FeishuError('EXPORT_WRITE_FAILED', error.code === 'EEXIST' ? 'Output file already exists; choose a new path.' : 'Could not write the output file.'); }
+      output({ output: o.output, total: result.total, format: o.format });
+    } else output({ total: result.total, format: o.format, content });
+  });
 
 program.command('chat-open').description('Open or find a private chat by numeric user or bot ID.')
   .requiredOption('--id <id>', 'numeric ID from search')

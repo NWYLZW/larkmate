@@ -1,6 +1,6 @@
 # LarkMate 快速安装
 
-LarkMate 使用当前用户的飞书网页 Cookie，要求 Node.js 版本为 20 或更高。运行时无需安装 Lark CLI，也无需启动 Agent 服务。
+LarkMate 使用当前用户的飞书网页 Cookie，要求 Node.js 版本为 20 及以上。常规直连无需安装 Lark CLI 或启动代理；向其他 Agent 委托部分能力时，可使用[受限代理](docs/agent-broker.md)。
 
 ## 方式一：让 AI 安装
 

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "allow": ["chat-info", "history", "messages-export"],
+  "chatIds": [],
+  "minuteTokens": [],
+  "allowAllChats": false,
+  "allowAllMinutes": false,
+  "allowGlobal": false
+}

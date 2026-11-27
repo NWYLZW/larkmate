@@ -65,3 +65,5 @@ npx --registry=https://registry.npmjs.org/ skills add NWYLZW/larkmate --skill la
   - [ ] 读取智能纪要、导出为飞书文档
 
 具体用法和能力边界见 [LarkMate Skill](skills/larkmate/SKILL.md)。
+
+如需将部分能力交给其他 Agent，可使用 [Agent 权限委托](docs/agent-broker.md)。

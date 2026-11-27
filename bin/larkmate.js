@@ -8,27 +8,83 @@ import { Minutes, formatTranscript } from '../src/minutes.js';
 import { writeFile } from 'node:fs/promises';
 import { FeishuError } from '../src/errors.js';
 import { exportMessages } from '../src/export-messages.js';
+import { brokerCall, brokerCommands, brokerProxy, createBrokerToken, loadBrokerToken, loadPolicy, startBroker } from '../src/agent-broker.js';
 
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.7');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.8');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
+program.option('--broker <path>', 'use a restricted local broker socket (or LARKMATE_BROKER)');
+program.option('--broker-token-file <path>', 'read the agent token (or LARKMATE_BROKER_TOKEN_FILE)');
 program.exitOverride();
+let activeCommand;
+program.hook('preAction', (_program, command) => { activeCommand = command.name(); });
 
 const collect = (value, previous) => [...previous, value];
 const output = value => process.stdout.write(`${JSON.stringify({ ok: true, ...value }, null, 2)}\n`);
 
+function configuredBroker() { return program.opts().broker || process.env.LARKMATE_BROKER || null; }
+function configuredBrokerToken() { return program.opts().brokerTokenFile || process.env.LARKMATE_BROKER_TOKEN_FILE || null; }
+function proxy(service) {
+  const path = configuredBroker();
+  if (!path && configuredBrokerToken()) throw new FeishuError('BROKER_CONFIGURATION_INVALID', 'A broker token file was configured without a broker socket.');
+  if (path && program.opts().credentialsFile) throw new FeishuError('INVALID_ARGUMENT', 'A broker client cannot select a credentials file.');
+  return path ? brokerProxy(path, service, () => activeCommand, configuredBrokerToken()) : null;
+}
+
 async function controls() {
+  const remote = proxy('controls');
+  if (remote) return remote;
   return new SessionControls(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) }));
 }
 
 async function client() {
+  const remote = proxy('client');
+  if (remote) return remote;
   const cookie = await loadCookie({ file: program.opts().credentialsFile });
   return new LarkMateClient(new Gateway({ cookie }));
 }
 
 async function minutes() {
+  const remote = proxy('minutes');
+  if (remote) return remote;
   return new Minutes(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) }));
 }
+
+program.command('broker-commands').description('List operations supported by the agent broker and their scopes.')
+  .action(() => output({ items: brokerCommands() }));
+
+program.command('broker-token-create').description('Create a private token for one agent broker.')
+  .requiredOption('--output <path>', 'absolute path for a new token file')
+  .action(async o => { await createBrokerToken(o.output); output({ status: 'created', output: o.output }); });
+
+program.command('broker-serve').description('Start a restricted local agent broker with an owner-controlled policy.')
+  .requiredOption('--socket <path>', 'absolute Unix socket path')
+  .requiredOption('--policy <path>', 'absolute JSON policy path')
+  .requiredOption('--token-file <path>', 'absolute owner-controlled agent token file')
+  .action(async o => {
+    if (configuredBroker()) throw new FeishuError('INVALID_ARGUMENT', 'Start the broker directly, without --broker or LARKMATE_BROKER.');
+    const policy = await loadPolicy(o.policy);
+    const token = await loadBrokerToken(o.tokenFile, { owner: true });
+    let promise;
+    const getServices = () => promise ||= (async () => {
+      const gateway = new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) });
+      return { client: new LarkMateClient(gateway), controls: new SessionControls(gateway), minutes: new Minutes(gateway) };
+    })().catch(error => { promise = undefined; throw error; });
+    const broker = await startBroker({ socketPath: o.socket, policy, token, getServices });
+    output({ status: 'listening', socket: broker.socketPath });
+    let closing = false;
+    const stop = async () => { if (closing) return; closing = true; try { await broker.close(); } finally { process.exit(0); } };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  });
+
+program.command('broker-info').description('Show the permissions assigned to this broker connection.')
+  .action(async () => {
+    const path = configuredBroker();
+    if (!path) throw new FeishuError('INVALID_ARGUMENT', 'Specify --broker or LARKMATE_BROKER.');
+    if (program.opts().credentialsFile) throw new FeishuError('INVALID_ARGUMENT', 'A broker client cannot select a credentials file.');
+    output(await brokerCall(path, { command: 'broker-info' }, configuredBrokerToken()));
+  });
 
 program.command('status').description('Check the current user login.')
   .action(async () => output(await (await client()).status()));

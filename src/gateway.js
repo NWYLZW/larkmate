@@ -9,6 +9,7 @@ const defaults = {
   user: 'https://internal-api-lark-api.feishu.cn/accounts/web/user',
   gateway: 'https://internal-api-lark-api.feishu.cn/im/gateway/',
   botApi: 'https://open.feishu.cn/open-apis/chatbot/api/',
+  file: 'https://internal-api-lark-file.feishu.cn',
 };
 
 export const shortId = () => randomBytes(8).toString('hex').slice(0, 10);
@@ -112,6 +113,14 @@ export class Gateway {
 
   decode(name, bytes) {
     return this.proto.lookupType(name).decode(bytes);
+  }
+
+  async uploadRequest(path, body, contentType) {
+    const response = await this.request(this.endpoints.file + path, {
+      method: 'POST', redirect: 'manual', headers: { ...this.baseHeaders(), 'content-type': contentType }, body,
+    }, { operation: 'upload-file', mutating: true });
+    try { return new Uint8Array(await response.arrayBuffer()); }
+    catch { throw new FeishuError('UPLOAD_FAILED', 'File upload response was unreadable.'); }
   }
 
   async botApi(action, body, { mutating = false, operation } = {}) {

@@ -133,9 +133,10 @@ message Content {
   optional string fileKey = 6;
   optional string audioKey = 7;
   optional string mimeType = 8;
-  optional int64 fileSize = 9;
+  optional int64 fileSize = 13;
   optional string thumbnailKey = 10;
   optional string fileName = 11;
+  optional string fileMime = 12;
   optional RichText richText = 14;
   optional string stickerSetId = 24;
   optional string stickerId = 25;
@@ -339,6 +340,8 @@ message Chat {
   optional int64 createTime = 18;
   optional string tenantId = 25;
   optional bool isDissolved = 30;
+  optional string lastVisibleMessageId = 32;
+  optional int32 lastVisibleMessagePosition = 46;
   optional bool isCrossTenant = 41;
   optional Announcement announcement = 24;
 
@@ -449,3 +452,51 @@ message LocaleEntry {
   optional string key_string = 1;
   optional string translation = 2;
 }
+
+// Web inbox cards and user file upload messages.
+message PullFeedCardsRequest {
+  optional int32 type = 1;
+  optional int32 pullType = 2;
+  optional int64 cursor = 3;
+  optional int32 count = 4;
+  optional int64 parentCardId = 5;
+}
+message InboxCard {
+  optional string id = 1;
+  optional int32 type = 2;
+  optional int64 updateTime = 3;
+  optional int64 parentCardId = 5;
+}
+message PullFeedCardsResponse {
+  map<string, Chat> chats = 1;
+  repeated InboxCard cards = 3;
+  optional int64 nextCursor = 4;
+}
+message CreateFileUploadRequest {
+  optional int32 fileType = 3;
+  optional string fileName = 5;
+  optional int64 fileSize = 6;
+}
+message CreateFileUploadResponse { optional string uploadId = 1; }
+message UploadFilePartResponse { optional uint32 partId = 1; optional uint32 crc32 = 2; }
+message CompleteFileUploadRequest {
+  optional string uploadId = 1;
+  optional int32 fileType = 2;
+  map<uint32, uint32> partToCrc32 = 3;
+  optional string fileName = 4;
+  optional string mime = 5;
+}
+message CompleteFileUploadResponse { optional int32 code = 1; }
+message PutMessageResponse { optional MessageEntity message = 1; }
+message FileContent {
+  optional string key = 1;
+  optional string name = 2;
+  optional int64 size = 3;
+  optional string mime = 4;
+}
+message ImageContent {
+  optional ImageSet image = 1;
+  optional ImageSetV2 imageV2 = 2;
+}
+message ImageSet { optional string key = 1; optional string imageKey = 4; }
+message ImageSetV2 { optional string imageKey = 1; }

@@ -2,12 +2,12 @@
 import { Command, CommanderError } from 'commander';
 import { loadCookie } from '../src/credentials.js';
 import { Gateway } from '../src/gateway.js';
-import { FeishuUserClient } from '../src/client.js';
+import { LarkMateClient } from '../src/client.js';
 import { FeishuError } from '../src/errors.js';
 
 const program = new Command();
-program.name('feishu-user').description('Operate Feishu as the logged-in user.').version('0.1.0');
-program.option('--credentials-file <path>', 'read a Cookie file or compatible credentials.json');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.0');
+program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.exitOverride();
 
 const collect = (value, previous) => [...previous, value];
@@ -15,7 +15,7 @@ const output = value => process.stdout.write(`${JSON.stringify({ ok: true, ...va
 
 async function client() {
   const cookie = await loadCookie({ file: program.opts().credentialsFile });
-  return new FeishuUserClient(new Gateway({ cookie }));
+  return new LarkMateClient(new Gateway({ cookie }));
 }
 
 program.command('status').description('Check the current user login.')
@@ -24,6 +24,18 @@ program.command('status').description('Check the current user login.')
 program.command('search').description('Search users, bots and groups.')
   .requiredOption('--query <text>', 'search text')
   .action(async options => output(await (await client()).search(options.query)));
+
+program.command('chats').description('List a page of inbox chats without opening them.')
+  .option('--limit <number>', 'inbox cards per page, 1 to 100', '50')
+  .option('--cursor <number>', 'continue with the returned cursor')
+  .option('--parent <id>', 'list a box returned by a previous page')
+  .option('--type <type>', 'filter this page: p2p, group or topic_group')
+  .action(async options => {
+    if (options.type && !['p2p', 'group', 'topic_group'].includes(options.type)) throw new FeishuError('INVALID_ARGUMENT', 'Invalid chat type.');
+    const page = await (await client()).chats({ limit: Number(options.limit), cursor: options.cursor, parent: options.parent });
+    if (options.type) page.items = page.items.filter(item => item.type === options.type);
+    output(page);
+  });
 
 program.command('chat-open').description('Open or find a private chat by numeric user or bot ID.')
   .requiredOption('--id <id>', 'numeric ID from search')
@@ -37,8 +49,15 @@ program.command('history').description('Read a bounded page of chat messages as 
   .requiredOption('--chat <id>', 'numeric chat ID')
   .option('--limit <number>', 'number of positions, 1 to 100', '20')
   .option('--start <number>', 'first position; defaults to the most recent page')
-  .action(async options => output(await (await client()).history({
-    chatId: options.chat, limit: Number(options.limit),
+  .option('--pages <number>', 'scan up to this many pages backwards, 1 to 100', '1')
+  .option('--query <text>', 'filter text within the scanned positions')
+  .option('--sender <id>', 'filter sender ID within the scanned positions')
+  .option('--after <seconds>', 'filter from Unix time in seconds, inclusive')
+  .option('--before <seconds>', 'filter until Unix time in seconds, inclusive')
+  .action(async options => output(await (await client()).historyPages({
+    chatId: options.chat, limit: Number(options.limit), pages: Number(options.pages), query: options.query, sender: options.sender,
+    ...(options.after != null ? { after: Number(options.after) } : {}),
+    ...(options.before != null ? { before: Number(options.before) } : {}),
     ...(options.start != null ? { start: Number(options.start) } : {}),
   })));
 
@@ -54,6 +73,11 @@ program.command('send').description('Send text once as the user; delivery remain
     });
     output(await (await client()).send({ chatId: options.chat, text: options.text, mentions }));
   });
+
+program.command('send-file').description('Upload and send a local file as the user.')
+  .requiredOption('--chat <id>', 'numeric chat ID')
+  .requiredOption('--file <path>', 'local file path')
+  .action(async options => output(await (await client()).sendFile({ chatId: options.chat, path: options.file })));
 
 program.command('group-create').description('Create a group as the user.')
   .requiredOption('--name <name>', 'group name')

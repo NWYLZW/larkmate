@@ -1,18 +1,18 @@
 {
-  "name": "feishu-user-cli",
+  "name": "larkmate",
   "version": "0.1.0",
   "private": true,
   "description": "A small, user-identity Feishu CLI with a modular gateway client",
   "type": "module",
   "bin": {
-    "feishu-user": "bin/feishu-user.js"
+    "larkmate": "bin/larkmate.js"
   },
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check bin/feishu-user.js && node --test"
+    "check": "node --check bin/larkmate.js && node --test"
   },
   "dependencies": {
     "commander": "^13.1.0",

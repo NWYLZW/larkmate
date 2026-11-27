@@ -10,7 +10,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import protobuf from 'protobufjs';
 import { Gateway } from '../src/gateway.js';
-import { FeishuUserClient } from '../src/client.js';
+import { LarkMateClient } from '../src/client.js';
 import { loadCookie } from '../src/credentials.js';
 
 const proto = await protobuf.load(fileURLToPath(new URL('../proto/lark.proto', import.meta.url)));
@@ -152,7 +152,7 @@ async function fixture() {
   const gateway = new Gateway({ cookie: 'session=fixture', endpoints: {
     csrf: `${base}/csrf`, user: `${base}/user`, gateway: `${base}/gateway`, botApi: `${base}/bot/`,
   } });
-  return { gateway, client: new FeishuUserClient(gateway), calls, state, close: () => new Promise(resolve => server.close(resolve)) };
+  return { gateway, client: new LarkMateClient(gateway), calls, state, close: () => new Promise(resolve => server.close(resolve)) };
 }
 
 test('user-identity requests traverse the real wire encoder and a local gateway', async t => {
@@ -260,18 +260,19 @@ test('group edits and dissolution change only the requested fields', async t => 
   assert.equal(f.calls.filter(x => x === 72).length, 4);
 });
 
-test('credentials reuse the existing profile without modifying or printing it', async t => {
-  const dir = await mkdtemp(join(tmpdir(), 'feishu-user-test-'));
+test('credentials use only LarkMate configuration and never print secrets', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'larkmate-test-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const path = join(dir, 'credentials.json');
   const fixtureCookie = 'session=fake-for-test';
-  const document = JSON.stringify({ active: 'a', profiles: { a: { LARK_COOKIE: fixtureCookie } } });
-  await writeFile(path, document, { mode: 0o600 });
+  await writeFile(path, JSON.stringify({ cookie: fixtureCookie }), { mode: 0o600 });
   assert.equal(await loadCookie({ file: path, env: {} }), fixtureCookie);
-  assert.equal(await loadCookie({ env: { FEISHU_USER_PLUGIN_CREDENTIALS_DIR: dir }, home: dir }), fixtureCookie);
-  await assert.rejects(loadCookie({ env: {}, home: dir }), { code: 'CREDENTIALS_UNAVAILABLE' });
-  const { stdout } = await promisify(execFile)(process.execPath, ['bin/feishu-user.js', '--help'], {
-    cwd: fileURLToPath(new URL('..', import.meta.url)), env: { PATH: process.env.PATH, LARK_COOKIE: fixtureCookie },
+  assert.equal(await loadCookie({ env: { LARKMATE_HOME: dir }, home: dir }), fixtureCookie);
+  assert.equal(await loadCookie({ env: { LARKMATE_COOKIE: fixtureCookie }, home: dir }), fixtureCookie);
+  await assert.rejects(loadCookie({ env: { LARK_COOKIE: fixtureCookie, FEISHU_USER_PLUGIN_CREDENTIALS_DIR: dir }, home: dir }), { code: 'CREDENTIALS_UNAVAILABLE' });
+  const { stdout } = await promisify(execFile)(process.execPath, ['bin/larkmate.js', '--help'], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)), env: { PATH: process.env.PATH, LARKMATE_COOKIE: fixtureCookie },
   });
   assert.doesNotMatch(stdout, /fake-for-test/);
+  assert.match(stdout, /larkmate/);
 });

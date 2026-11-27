@@ -1,0 +1,61 @@
+import { open } from 'node:fs/promises';
+import { basename } from 'node:path';
+import { FeishuError } from './errors.js';
+
+const CHUNK = 4 * 1024 * 1024;
+const MAX_BYTES = 100 * 1024 * 1024;
+const table = Uint32Array.from({ length: 256 }, (_, n) => {
+  for (let i = 0; i < 8; i++) n = (n >>> 1) ^ ((n & 1) ? 0xedb88320 : 0);
+  return n >>> 0;
+});
+export function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const b of bytes) crc = table[(crc ^ b) & 255] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+export async function uploadFile(gateway, path) {
+  let handle;
+  try { handle = await open(path, 'r'); }
+  catch { throw new FeishuError('FILE_UNAVAILABLE', 'Cannot open the file.'); }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size < 1 || stat.size > MAX_BYTES) {
+      throw new FeishuError('FILE_INVALID', 'Use a regular, non-empty file up to 100 MiB.');
+    }
+    const name = basename(path);
+    await gateway.authenticate();
+    const created = gateway.decode('CreateFileUploadResponse', await gateway.uploadRequest('/upload/create',
+      gateway.encode('CreateFileUploadRequest', { fileType: 1, fileName: name, fileSize: stat.size }), 'application/x-protobuf'));
+    const key = created.uploadId;
+    if (typeof key !== 'string' || !/^[\w.-]{1,200}$/.test(key)) {
+      throw new FeishuError('UPLOAD_FAILED', 'File upload could not be initialized.');
+    }
+    const checksums = {};
+    let offset = 0;
+    let partId = 0;
+    while (offset < stat.size) {
+      const buffer = Buffer.allocUnsafe(Math.min(CHUNK, stat.size - offset));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset);
+      if (bytesRead !== buffer.length) throw new FeishuError('FILE_CHANGED', 'File changed during upload.');
+      partId++;
+      const expected = crc32(buffer);
+      const part = gateway.decode('UploadFilePartResponse', await gateway.uploadRequest(
+        `/upload/part?upload_id=${encodeURIComponent(key)}&part_id=${partId}`, buffer, 'application/octet-stream'));
+      if (!Object.hasOwn(part, 'partId') || !Object.hasOwn(part, 'crc32') || part.partId !== partId || part.crc32 !== expected) {
+        throw new FeishuError('UPLOAD_FAILED', 'File part checksum did not match.');
+      }
+      checksums[partId] = expected;
+      offset += bytesRead;
+    }
+    const finalStat = await handle.stat();
+    if (finalStat.size !== stat.size || finalStat.mtimeMs !== stat.mtimeMs) {
+      throw new FeishuError('FILE_CHANGED', 'File changed during upload.');
+    }
+    const completed = gateway.decode('CompleteFileUploadResponse', await gateway.uploadRequest('/upload/complete',
+      gateway.encode('CompleteFileUploadRequest', { uploadId: key, fileType: 1, partToCrc32: checksums, fileName: name }),
+      'application/x-protobuf'));
+    if (completed.code !== 0) throw new FeishuError('UPLOAD_FAILED', 'File upload completion was rejected.');
+    return { key, name, size: stat.size };
+  } finally { await handle.close(); }
+}

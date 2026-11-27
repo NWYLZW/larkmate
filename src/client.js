@@ -1,3 +1,4 @@
+import { uploadFile } from './upload.js';
 import { FeishuError, requireNumericId, requireText } from './errors.js';
 import { shortId } from './gateway.js';
 
@@ -18,7 +19,7 @@ function decodedPayload(gateway, response, type, operation) {
   }
 }
 
-export class FeishuUserClient {
+export class LarkMateClient {
   constructor(gateway) { this.gateway = gateway; }
 
   async status() {
@@ -46,6 +47,32 @@ export class FeishuUserClient {
       id: String(item.id || ''), type: names[item.type] || 'unknown',
       name: (item.titleHighlighted || '').replace(/<[^>]+>/g, ''),
     })) };
+  }
+
+  async chats({ limit = 50, cursor, parent } = {}) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new FeishuError('INVALID_ARGUMENT', 'limit must be between 1 and 100.');
+    for (const [value, label] of [[cursor, 'cursor'], [parent, 'parent']]) {
+      if (value != null && !/^[0-9]{1,19}$/.test(String(value))) throw new FeishuError('INVALID_ARGUMENT', label + ' must be a numeric identifier.');
+    }
+    const response = await this.gateway.call(1000, 'PullFeedCardsRequest', {
+      type: 1, pullType: cursor ? 2 : 1, count: limit,
+      ...(cursor ? { cursor: String(cursor) } : {}), ...(parent ? { parentCardId: String(parent) } : {}),
+    }, { operation: 'list-chats' });
+    if (!response.packet.payload?.length) throw new FeishuError('INVALID_RESPONSE', 'No inbox page was returned.');
+    let page;
+    try { page = this.gateway.decode('PullFeedCardsResponse', response.packet.payload); }
+    catch { throw new FeishuError('INVALID_RESPONSE', 'The inbox page was unreadable.'); }
+    const types = { 1: 'p2p', 2: 'group', 3: 'topic_group' };
+    const items = [], boxes = [];
+    for (const card of page.cards || []) {
+      if (card.type === 5) { boxes.push({ id: String(card.id) }); continue; }
+      if (card.type !== 1) continue;
+      const chat = page.chats?.[card.id];
+      items.push({ id: String(card.id), name: chat?.name || '', type: types[chat?.type] || 'unknown',
+        updatedAt: Object.hasOwn(card, 'updateTime') ? String(card.updateTime) : null });
+    }
+    const nextCursor = Object.hasOwn(page, 'nextCursor') && String(page.nextCursor) !== '0' ? String(page.nextCursor) : null;
+    return { items, boxes, nextCursor, scope: 'inbox' };
   }
 
   async openChat(userId) {
@@ -146,11 +173,74 @@ export class FeishuUserClient {
           text = content.richText?.innerText || content.text || null;
         } catch { /* Keep unsupported or undecodable content explicitly unknown. */ }
       }
+      let resource = null;
+      if (message.content?.length && (message.type === 3 || message.type === 5)) {
+        try {
+          const content = this.gateway.decode(message.type === 3 ? 'FileContent' : 'ImageContent', message.content);
+          resource = message.type === 3
+            ? { key: content.key || null, name: content.name || null, size: Object.hasOwn(content, 'size') ? String(content.size) : null, mime: content.mime || null }
+            : { key: content.imageV2?.imageKey || content.image?.imageKey || content.image?.key || null };
+        } catch { /* Leave unknown resources unparsed. */ }
+      }
       return { id: String(message.id || ''), position: Number(position),
-        senderId: message.fromId || '', type: message.type, text };
+        senderId: message.fromId || '', type: message.type, text,
+        createTime: Object.hasOwn(message, 'createTime') ? String(message.createTime) : null, resource };
     }).sort((a, b) => a.position - b.position);
     return { items, requestedPositions: positions.length,
-      omittedPositions: positions.length - items.length, hasMore: Object.hasOwn(data, 'hasMore') ? data.hasMore : null };
+      omittedPositions: positions.length - items.length, nextStart: first > 1 ? Math.max(1, first - limit) : null,
+      nextLimit: first > 1 ? Math.min(limit, first - 1) : null,
+      hasMore: Object.hasOwn(data, 'hasMore') ? data.hasMore : null };
+  }
+
+  async historyPages({ chatId, limit = 20, start, pages = 1, query, sender, after, before }) {
+    if (!Number.isInteger(pages) || pages < 1 || pages > 100) throw new FeishuError('INVALID_ARGUMENT', 'pages must be between 1 and 100.');
+    if (sender) requireNumericId(sender, 'sender ID');
+    for (const [value, label] of [[after, 'after'], [before, 'before']]) {
+      if (value != null && (!Number.isSafeInteger(value) || value < 0)) throw new FeishuError('INVALID_ARGUMENT', label + ' must be a Unix timestamp in seconds.');
+    }
+    if (after != null && before != null && after > before) throw new FeishuError('INVALID_ARGUMENT', 'after must not be later than before.');
+    let next = start, pageLimit = limit, nextLimit = null, scanned = 0, omittedPositions = 0, missingTimestamps = 0, items = [];
+    for (let i = 0; i < pages; i++) {
+      const page = await this.history({ chatId, limit: pageLimit, start: next });
+      scanned += page.requestedPositions || 0;
+      omittedPositions += page.omittedPositions || 0;
+      items.push(...page.items.filter(item => {
+        if (sender && item.senderId !== sender) return false;
+        if (query && !(item.text || '').includes(query)) return false;
+        if (after != null || before != null) {
+          if (item.createTime == null) { missingTimestamps++; return false; }
+          const time = Number(item.createTime);
+          if (!Number.isSafeInteger(time)) { missingTimestamps++; return false; }
+          if ((after != null && time < after) || (before != null && time > before)) return false;
+        }
+        return true;
+      }));
+      next = page.nextStart;
+      nextLimit = page.nextLimit;
+      pageLimit = nextLimit;
+      if (next == null) break;
+    }
+    items.sort((a, b) => a.position - b.position);
+    return { items, scannedPositions: scanned, omittedPositions, missingTimestamps, nextStart: next ?? null, nextLimit, filterScope: 'scanned_positions_only' };
+  }
+
+  async sendFile({ chatId, path }) {
+    requireNumericId(chatId, 'chat ID');
+    requireText(path, 'file path');
+    const file = await uploadFile(this.gateway, path);
+    const cid = shortId();
+    const response = await this.gateway.call(5, 'PutMessageRequest', {
+      type: 3, chatId, cid, isNotified: true, version: 1,
+      content: { fileKey: file.key, fileName: file.name, fileSize: file.size },
+    }, { version: '5.7.0', mutating: true, operation: 'send-file' });
+    let id = null;
+    try {
+      if (response.packet.payload?.length) {
+        const message = this.gateway.decode('PutMessageResponse', response.packet.payload).message;
+        if (message?.id && !String(message.id).startsWith('-') && (!message.chatId || message.chatId === chatId)) id = String(message.id);
+      }
+    } catch { /* Submission remains unconfirmed. */ }
+    return { status: id ? 'accepted' : 'submitted_unconfirmed', chatId, messageId: id, cid, requestId: response.requestId, fileName: file.name };
   }
 
   async send({ chatId, text, mentions = [] }) {

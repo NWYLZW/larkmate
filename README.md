@@ -85,13 +85,14 @@ larkmate label-delete --label "$LABEL_ID"
 larkmate minutes-list --limit 20
 larkmate minutes-list --cursor "$CURSOR"
 larkmate minutes-access-info --minute "$MINUTES_URL"
+larkmate minutes-request-access --minute "$MINUTES_URL" --reason '需要查看会议文字记录'
 larkmate minutes-export --minute "$MINUTES_URL" --output transcript.txt
 larkmate minutes-export --minute "$MINUTES_URL" --format markdown --no-speakers --no-timestamps --output transcript.md
 ```
 
 导出内容默认包含说话人与时间戳，可通过 `--no-speakers` 和 `--no-timestamps` 分别关闭。支持导出为本地 TXT 或 Markdown 文件；若未指定 `--output`，文本内容将输出至 JSON 结果的 `content` 字段中。为防止意外覆盖现有文件，指定的输出路径必须尚不存在。当字幕超过 10000 段或飞书返回的数据不完整时，程序将直接报错并终止，不会写入残缺记录。
 
-`minutes-access-info` 仅用于查询妙记所有者及是否允许申请权限，不会实际发起申请。当前版本尚不支持创建飞书文档、申请访问权限，或查询没有录制妙记的历史会议。
+`minutes-access-info` 查询妙记所有者及是否允许申请，不会发起申请。`minutes-request-access` 会向所有者发送查看权限申请，`--reason` 可省略；`submitted` 只表示申请已提交，仍需所有者同意。若返回 `EFFECT_UNKNOWN`，应先向所有者确认是否收到，避免重复申请。当前版本尚不支持创建飞书文档或查询没有录制妙记的历史会议。
 
 ## 发送消息和文件
 

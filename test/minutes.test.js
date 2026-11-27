@@ -47,3 +47,49 @@ test('list cursor, input validation and access failures', async () => {
   f.minutes.gateway.fetchImpl = async () => new Response('', { status: 403 });
   await assert.rejects(f.minutes.transcript(token), { code: 'MINUTES_ACCESS_DENIED' });
 });
+
+function requestFixture({ allowed = true, postResponse = () => new Response(JSON.stringify({ code: 0, data: {} }), { status: 200 }) } = {}) {
+  const calls = [];
+  const gateway = {
+    timeoutMs: 1000, jar: new Map(),
+    baseHeaders: () => ({ cookie: 'session=secret' }),
+    absorbCookies: headers => { for (const cookie of headers.getSetCookie()) if (cookie.startsWith('bv_csrf_token=')) gateway.jar.set('bv_csrf_token', cookie.split(';')[0].split('=')[1]); },
+    fetchImpl: async (url, options) => {
+      calls.push({ url: new URL(url), options });
+      if (new URL(url).pathname.endsWith('/permission/apply/info')) return new Response(JSON.stringify({ code: 0, data: { owner_name: 'Owner', allow_apply: allowed } }));
+      if (new URL(url).pathname === `/minutes/${token}`) return new Response(null, { status: 307, headers: { 'set-cookie': 'bv_csrf_token=csrf-test; Path=/' } });
+      return postResponse();
+    },
+  };
+  return { minutes: new Minutes(gateway), calls };
+}
+
+test('access request uses the web flow once and reports submission rather than approval', async () => {
+  const f = requestFixture();
+  const result = await f.minutes.requestAccess(token, { reason: '请开通查看权限' });
+  assert.equal(result.status, 'submitted'); assert.equal(result.ownerName, 'Owner');
+  const writes = f.calls.filter(c => c.options.method === 'POST'); assert.equal(writes.length, 1);
+  const write = writes[0]; assert.equal(write.url.hostname, 'meetings.feishu.cn'); assert.equal(write.options.redirect, 'manual');
+  assert.equal(write.options.headers['bv-csrf-token'], 'csrf-test');
+  assert.equal(write.options.body.get('object_token'), token); assert.equal(write.options.body.get('remark'), '请开通查看权限');
+  assert.equal(write.options.body.get('language'), 'zh_cn');
+});
+
+test('disallowed requests are never submitted', async () => {
+  const f = requestFixture({ allowed: false });
+  await assert.rejects(f.minutes.requestAccess(token), { code: 'MINUTES_APPLY_NOT_ALLOWED' });
+  assert.equal(f.calls.length, 1);
+});
+
+test('uncertain submission is not retried or reported as success', async () => {
+  for (const postResponse of [() => { throw new Error('connection lost'); }, () => new Response('bad json')]) {
+    const f = requestFixture({ postResponse });
+    await assert.rejects(f.minutes.requestAccess(token), { code: 'EFFECT_UNKNOWN' });
+    assert.equal(f.calls.filter(c => c.options.method === 'POST').length, 1);
+  }
+});
+
+test('server rejection is distinct from an uncertain submission', async () => {
+  const f = requestFixture({ postResponse: () => new Response(JSON.stringify({ code: 456 }), { status: 200 }) });
+  await assert.rejects(f.minutes.requestAccess(token), error => error.code === 'MINUTES_APPLY_REJECTED' && error.details.upstreamCode === 456);
+});

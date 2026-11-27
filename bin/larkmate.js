@@ -9,7 +9,7 @@ import { writeFile } from 'node:fs/promises';
 import { FeishuError } from '../src/errors.js';
 
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.0');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.1');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.exitOverride();
 
@@ -94,6 +94,11 @@ program.command('minutes-list').description('List accessible recording minutes w
 program.command('minutes-access-info').description('Check who owns a recording and whether an access request is allowed.')
   .requiredOption('--minute <token-or-url>', 'recording minutes token or URL')
   .action(async o => output(await (await minutes()).accessInfo(o.minute)));
+
+program.command('minutes-request-access').description('Request access from the recording owner.')
+  .requiredOption('--minute <token-or-url>', 'recording minutes token or URL')
+  .option('--reason <text>', 'optional request message', '')
+  .action(async o => output(await (await minutes()).requestAccess(o.minute, { reason: o.reason })));
 
 program.command('minutes-export').description('Export a complete recording transcript.')
   .requiredOption('--minute <token-or-url>', 'recording minutes token or URL')

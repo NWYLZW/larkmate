@@ -59,6 +59,43 @@ export class Minutes {
     return { ownerId: result.owner_user_id || null, ownerName: result.owner_name || null, allowApply: result.allow_apply, notAllowedTips: result.not_allowed_tips || null };
   }
 
+  async requestAccess(value, { reason = '' } = {}) {
+    const token = minuteToken(value);
+    if (typeof reason !== 'string' || [...reason].length > 600) throw new FeishuError('INVALID_ARGUMENT', 'The request reason must be at most 600 characters.');
+    const info = await this.accessInfo(token);
+    if (!info.allowApply) throw new FeishuError('MINUTES_APPLY_NOT_ALLOWED', 'The owner does not allow access requests for this recording.', { ownerName: info.ownerName, notAllowedTips: info.notAllowedTips });
+
+    // The minutes page sets the CSRF cookie used by the web client's write requests.
+    const pageUrl = `https://meetings.feishu.cn/minutes/${token}`;
+    let page;
+    try {
+      page = await this.gateway.fetchImpl(pageUrl, { headers: this.gateway.baseHeaders(), redirect: 'manual', signal: AbortSignal.timeout(this.gateway.timeoutMs) });
+    } catch { throw new FeishuError('REQUEST_FAILED', 'Could not prepare the Feishu minutes session; no request was sent.'); }
+    if (![200, 301, 302, 303, 307, 308].includes(page.status)) throw new FeishuError('REQUEST_FAILED', 'Could not prepare the Feishu minutes session; no request was sent.', { httpStatus: page.status });
+    this.gateway.absorbCookies(page.headers);
+    const csrf = this.gateway.jar.get('bv_csrf_token');
+    if (!csrf) throw new FeishuError('MINUTES_CSRF_UNAVAILABLE', 'Feishu did not provide a CSRF token; no request was sent.');
+
+    let response;
+    try {
+      response = await this.gateway.fetchImpl(new URL('permission/apply/action', BASE), {
+        method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(this.gateway.timeoutMs),
+        headers: { ...this.gateway.baseHeaders(), origin: 'https://meetings.feishu.cn', referer: pageUrl,
+          'content-type': 'application/x-www-form-urlencoded', 'bv-csrf-token': csrf, platform: 'web' },
+        body: new URLSearchParams({ remark: reason, object_token: token, language: 'zh_cn' }),
+      });
+    } catch { throw new FeishuError('EFFECT_UNKNOWN', 'The access request may have been submitted; check with the owner before retrying.'); }
+    if (response.status >= 500 || response.status === 408 || response.status === 429 || response.status >= 300 && response.status < 400) {
+      throw new FeishuError('EFFECT_UNKNOWN', 'The access request may have been submitted; check with the owner before retrying.', { httpStatus: response.status });
+    }
+    if (!response.ok) throw new FeishuError('MINUTES_APPLY_REJECTED', 'Feishu rejected the access request.', { httpStatus: response.status });
+    let payload;
+    try { payload = await response.json(); } catch { throw new FeishuError('EFFECT_UNKNOWN', 'The access request may have been submitted; check with the owner before retrying.'); }
+    if (typeof payload?.code !== 'number') throw new FeishuError('EFFECT_UNKNOWN', 'The access request may have been submitted; check with the owner before retrying.');
+    if (payload.code !== 0) throw new FeishuError('MINUTES_APPLY_REJECTED', 'Feishu rejected the access request.', { upstreamCode: payload.code });
+    return { status: 'submitted', ownerName: info.ownerName, message: 'Request submitted; access still requires the owner to approve it.' };
+  }
+
   async transcript(value) {
     const token = minuteToken(value), query = { object_token: token, language: 'zh_cn' };
     const ids = await this.get('subtitles/paragraph-ids', { page_size: 10000, page_num: 0, ...query });

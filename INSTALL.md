@@ -7,18 +7,7 @@ LarkMate 使用当前用户的飞书网页 Cookie，要求 Node.js 版本为 20 
 把下面的内容发给有本机终端访问能力的 AI 编程助手：
 
 ```text
-请帮我在这台电脑上安装 LarkMate CLI 和当前 AI 助手适用的 LarkMate Skill。
-项目地址：https://github.com/NWYLZW/larkmate
-
-请检查 Node.js 版本（需要 20 或更新版本），并使用公共 npm 安装：
-npm install -g larkmate --registry=https://registry.npmjs.org/
-
-请为当前 AI 助手安装 Skill：
-npx --registry=https://registry.npmjs.org/ skills add NWYLZW/larkmate --skill larkmate -g
-非交互安装时，根据当前助手选择 --agent，并使用 -y。
-
-请验证 CLI 和 Skill 均可用，保留已有的登录配置。如果尚未登录，请引导我在本机安全配置；
-不要让我在对话中发送 Cookie、密码或验证码。完成后告诉我安装和登录状态。
+请按照 https://raw.githubusercontent.com/NWYLZW/larkmate/main/docs/ai-install.md 帮我安装并使用 LarkMate。
 ```
 
 AI 可以执行安装和检查；访问飞书需要有效 Cookie。如果尚未配置登录态，按 AI 的指引在本机完成，或参考下方的“配置登录态”。

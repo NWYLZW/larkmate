@@ -4,11 +4,14 @@
 
 ```sh
 larkmate send --chat "$CHAT_ID" --text '消息内容'
+larkmate send --chat "$CHAT_ID" --text '回复内容' --reply-to "$MESSAGE_ID"
 larkmate send --chat "$CHAT_ID" --text '@名称 消息内容' --mention "$MEMBER_ID:名称"
 larkmate send-file --chat "$CHAT_ID" --file ./report.pdf
 ```
 
 文件须为非空普通文件且不超过 100 MiB。`accepted` 表示服务器返回消息 ID，`submitted_unconfirmed` 表示未可靠确认接收；不确定时先查历史再决定是否重试。
+
+回复已有回复时，需同时传入 `--reply-root`，其值取目标消息的 `rootId`；若目标消息是回复链的第一条，则只需传入 `--reply-to`。`history` 会返回每条消息的 `rootId` 和 `parentId`。
 
 ```sh
 larkmate group-members --chat "$CHAT_ID"

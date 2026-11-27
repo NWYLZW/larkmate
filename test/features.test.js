@@ -100,6 +100,21 @@ test('history returns file metadata and applies bounded time filters', async () 
   await assert.rejects(c.historyPages({ chatId: '500', after: 2, before: 1 }), { code: 'INVALID_ARGUMENT' });
 });
 
+test('reply sends both parent and thread root and rejects an incomplete reply target', async () => {
+  const requests = [];
+  const gateway = { encode, decode, async authenticate() {}, async call(command, type, body) {
+    requests.push(decode('PutMessageRequest', encode('PutMessageRequest', body)));
+    return { packet: {}, requestId: 'request' };
+  } };
+  const client = new LarkMateClient(gateway);
+  await client.send({ chatId: '500', text: 'reply', replyTo: '123', replyRoot: '100' });
+  assert.equal(requests[0].parentId, '123');
+  assert.equal(requests[0].rootId, '100');
+  await client.send({ chatId: '500', text: 'reply', replyTo: '123' });
+  assert.equal(requests[1].rootId, '123');
+  await assert.rejects(client.send({ chatId: '500', text: 'reply', replyRoot: '100' }), { code: 'INVALID_ARGUMENT' });
+});
+
 test('feed read state distinguishes manual marks, message counts and unavailable data', async () => {
   const gateway = { decode, async call() { return { packet: { payload: encode('PullFeedCardsResponse', {
     cards: [

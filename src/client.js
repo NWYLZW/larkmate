@@ -186,7 +186,7 @@ export class LarkMateClient {
             : { key: content.imageV2?.imageKey || content.image?.imageKey || content.image?.key || null };
         } catch { /* Leave unknown resources unparsed. */ }
       }
-      return { id: String(message.id || ''), position: Number(position),
+      return { id: String(message.id || ''), position: Number(position), rootId: message.rootId || null, parentId: message.parentId || null,
         senderId: message.fromId || '', type: message.type, text,
         createTime: Object.hasOwn(message, 'createTime') ? String(message.createTime) : null, resource };
     }).sort((a, b) => a.position - b.position);
@@ -247,9 +247,12 @@ export class LarkMateClient {
     return { status: id ? 'accepted' : 'submitted_unconfirmed', chatId, messageId: id, cid, requestId: response.requestId, fileName: file.name };
   }
 
-  async send({ chatId, text, mentions = [] }) {
+  async send({ chatId, text, mentions = [], replyTo, replyRoot }) {
     requireNumericId(chatId, 'chat ID');
     requireText(text, 'text');
+    if (replyTo) requireNumericId(replyTo, 'reply message ID');
+    if (replyRoot) requireNumericId(replyRoot, 'reply root ID');
+    if (replyRoot && !replyTo) throw new FeishuError('INVALID_ARGUMENT', 'reply-root requires reply-to.');
     if (!Array.isArray(mentions)) throw new FeishuError('INVALID_ARGUMENT', 'mentions must be a list.');
     await this.gateway.authenticate();
     const elementIds = [];
@@ -278,6 +281,7 @@ export class LarkMateClient {
     const cid = shortId();
     const response = await this.gateway.call(5, 'PutMessageRequest', {
       type: 4, chatId, cid, isNotified: true, version: 1,
+      ...(replyTo ? { parentId: replyTo, rootId: replyRoot || replyTo } : {}),
       content: { richText: { elementIds, innerText: text, elements: { dictionary }, atIds } },
     }, { version: '5.7.0', mutating: true, operation: 'send' });
     return { status: 'submitted_unconfirmed', chatId, cid, requestId: response.requestId };

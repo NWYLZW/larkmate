@@ -7,9 +7,10 @@ import { SessionControls } from '../src/session-controls.js';
 import { Minutes, formatTranscript } from '../src/minutes.js';
 import { writeFile } from 'node:fs/promises';
 import { FeishuError } from '../src/errors.js';
+import { exportMessages } from '../src/export-messages.js';
 
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.5');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.6');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.exitOverride();
 
@@ -141,17 +142,38 @@ program.command('history').description('Read a bounded page of chat messages as 
     ...(options.start != null ? { start: Number(options.start) } : {}),
   })));
 
+program.command('messages-export').description('Export a conversation to a local file, paging through history.')
+  .requiredOption('--chat <id>', 'numeric chat ID')
+  .requiredOption('--output <path>', 'new local output file')
+  .option('--format <format>', 'markdown or jsonl', 'markdown')
+  .option('--sender <id>', 'only messages from this numeric sender ID')
+  .option('--query <text>', 'only messages containing this text')
+  .option('--after <seconds>', 'inclusive Unix time in seconds')
+  .option('--before <seconds>', 'inclusive Unix time in seconds')
+  .option('--start <number>', 'first position of the initial page')
+  .option('--limit <number>', 'positions per page, 1 to 100', '100')
+  .option('--max-pages <number>', 'stop after this many pages; default scans to the beginning')
+  .action(async o => output(await exportMessages(await client(), {
+    chatId: o.chat, output: o.output, format: o.format, sender: o.sender, query: o.query, limit: Number(o.limit),
+    ...(o.after != null ? { after: Number(o.after) } : {}),
+    ...(o.before != null ? { before: Number(o.before) } : {}),
+    ...(o.start != null ? { start: Number(o.start) } : {}),
+    ...(o.maxPages != null ? { maxPages: Number(o.maxPages) } : {}),
+  })));
+
 program.command('send').description('Send text once as the user; delivery remains unconfirmed.')
   .requiredOption('--chat <id>', 'numeric chat ID')
   .requiredOption('--text <text>', 'message text')
   .option('--mention <id:name>', 'mention a numeric user or bot ID; repeatable', collect, [])
+  .option('--reply-to <id>', 'reply to a numeric message ID')
+  .option('--reply-root <id>', 'root ID when replying to an existing reply')
   .action(async options => {
     const mentions = options.mention.map(value => {
       const colon = value.indexOf(':');
       if (colon < 1) throw new FeishuError('INVALID_ARGUMENT', 'A mention must use id:name.');
       return { id: value.slice(0, colon), name: value.slice(colon + 1) };
     });
-    output(await (await client()).send({ chatId: options.chat, text: options.text, mentions }));
+    output(await (await client()).send({ chatId: options.chat, text: options.text, mentions, replyTo: options.replyTo, replyRoot: options.replyRoot }));
   });
 
 program.command('send-file').description('Upload and send a local file as the user.')

@@ -9,7 +9,7 @@ import { writeFile } from 'node:fs/promises';
 import { FeishuError } from '../src/errors.js';
 
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.4');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.5');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.exitOverride();
 

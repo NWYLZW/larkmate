@@ -37,7 +37,6 @@ npx --registry=https://registry.npmjs.org/ skills add NWYLZW/larkmate --skill la
   - [x] 标记已读或未读、设置免打扰
   - [x] 移入或移出已完成、会话收纳
   - [x] 创建、重命名和删除标签，管理手动标签下的会话
-  - [ ] 查询全部历史会话
   - [ ] 修改自动规则标签的会话成员
 - 消息
   - [x] 分页读取指定会话的历史消息

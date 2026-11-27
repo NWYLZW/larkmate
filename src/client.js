@@ -1,6 +1,8 @@
 import { uploadFile } from './upload.js';
-import { FeishuError, requireNumericId, requireText } from './errors.js';
+import { FeishuError, requireNumericId, requireInt64Id, requireText } from './errors.js';
 import { shortId } from './gateway.js';
+import { downloadFile } from './download.js';
+import { randomUUID } from 'node:crypto';
 
 function ids(values, label) {
   if (!Array.isArray(values)) throw new FeishuError('INVALID_ARGUMENT', `${label} must be a list.`);
@@ -47,6 +49,40 @@ export class LarkMateClient {
       id: String(item.id || ''), type: names[item.type] || 'unknown',
       name: (item.titleHighlighted || '').replace(/<[^>]+>/g, ''),
     })) };
+  }
+
+  async searchMessages({ query, limit = 20, cursor } = {}) {
+    requireText(query, 'query');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new FeishuError('INVALID_ARGUMENT', 'limit must be between 1 and 100.');
+    let state = { session: shortId(), seq: 1, token: '' };
+    if (cursor != null) {
+      try {
+        if (typeof cursor !== 'string' || cursor.length > 65536 || !/^[A-Za-z0-9_-]+$/.test(cursor)) throw new Error();
+        state = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+        if (state.query !== query || typeof state.session !== 'string' || !/^[a-zA-Z0-9]{1,64}$/.test(state.session) || !Number.isSafeInteger(state.seq) || state.seq < 2 || typeof state.token !== 'string' || !state.token) throw new Error();
+      } catch { throw new FeishuError('INVALID_ARGUMENT', 'Invalid cursor or cursor does not match the query.'); }
+    }
+    const response = await this.gateway.call(11021, 'UniversalSearchRequest', { header: {
+      searchSession: state.session, sessionSeqId: state.seq, query, locale: 'zh_CN', pageSize: limit,
+      ...(state.token ? { paginationToken: state.token } : {}),
+      searchContext: { tagName: 'SEARCH_MESSAGES', entityItems: [{ type: 5 }], commonFilter: { includeOuterTenant: true }, sourceKey: 'messenger' },
+    } }, { operation: 'search-messages' });
+    let data;
+    try { data = this.gateway.decode('UniversalSearchResponse', response.packet.payload); }
+    catch { throw new FeishuError('INVALID_RESPONSE', 'The message search response was unreadable.'); }
+    if (data.header?.errorCode) throw new FeishuError('SEARCH_REJECTED', 'Feishu rejected the message search.', { status: data.header.errorCode });
+    if (!data.header || (data.header.hasMore && !data.header.paginationToken)) throw new FeishuError('INVALID_RESPONSE', 'The message search response did not include a usable cursor.');
+    const items = (data.results || []).filter(item => item.type === 5).map(item => {
+      const m = item.meta?.message;
+      return { id: String(item.id || ''), chatId: m?.chatId || null, senderId: m?.senderId || null,
+        position: m && Object.hasOwn(m, 'position') ? m.position : null,
+        createTime: m && Object.hasOwn(m, 'createTime') ? String(m.createTime) : null,
+        title: (item.titleHighlighted || '').replace(/<[^>]+>/g, ''),
+        snippet: (item.summaryHighlighted || '').replace(/<[^>]+>/g, '') };
+    });
+    const nextCursor = data.header.hasMore ? Buffer.from(JSON.stringify({ query, session: state.session, seq: state.seq + 1, token: data.header.paginationToken })).toString('base64url') : null;
+    return { items, total: Object.hasOwn(data.header, 'total') ? data.header.total : null, hasMore: !!data.header.hasMore, nextCursor,
+      secondaryStageSearchable: data.header.secondaryStageSearchable ?? null };
   }
 
   async chats({ limit = 50, cursor, parent, scope = 'inbox' } = {}) {
@@ -245,6 +281,134 @@ export class LarkMateClient {
       }
     } catch { /* Submission remains unconfirmed. */ }
     return { status: id ? 'accepted' : 'submitted_unconfirmed', chatId, messageId: id, cid, requestId: response.requestId, fileName: file.name };
+  }
+
+  async reaction({ messageId, emoji = 'DarkThumbsup', remove = false }) {
+    requireInt64Id(messageId, 'message ID');
+    if (typeof emoji !== 'string' || !/^[A-Za-z0-9_]{1,64}$/.test(emoji)) {
+      throw new FeishuError('INVALID_ARGUMENT', 'emoji must be a Feishu reaction name.');
+    }
+    if (typeof remove !== 'boolean') throw new FeishuError('INVALID_ARGUMENT', 'remove must be a boolean.');
+    const result = await this.gateway.call(remove ? 26 : 25, 'MessageReactionRequest', {
+      messageId, reactionType: emoji, reactionStrategyVersion: 1,
+    }, { version: '5.7.0', mutating: true, operation: remove ? 'remove-reaction' : 'add-reaction' });
+    return { status: 'submitted_unconfirmed', messageId, emoji, action: remove ? 'remove' : 'add', requestId: result.requestId };
+  }
+
+  async sendImage({ chatId, path }) {
+    requireInt64Id(chatId, 'chat ID');
+    requireText(path, 'image path');
+    const image = await uploadFile(this.gateway, path, { image: true });
+    const cid = shortId();
+    const response = await this.gateway.call(5, 'PutMessageRequest', {
+      type: 5, chatId, cid, isNotified: true, version: 1,
+      rootId: '', parentId: '', isReplyInThread: false, isShare: false, aiInfoContext: new Uint8Array(), syncToChat: false, observedField20: 0,
+      content: { thumbnailKey: image.key },
+    }, { version: '8.5.0', mutating: true, operation: 'send-image' });
+    let id = null;
+    try {
+      if (response.packet.payload?.length) {
+        const m = this.gateway.decode('PutMessageResponse', response.packet.payload).message;
+        if (m?.id && !String(m.id).startsWith('-') && (!m.chatId || m.chatId === chatId)) id = String(m.id);
+      }
+    } catch { /* Submission remains unconfirmed. */ }
+    return { status: id ? 'accepted' : 'submitted_unconfirmed', chatId, messageId: id, cid, requestId: response.requestId };
+  }
+
+  async downloadFile(options) { return downloadFile(this.gateway, options); }
+
+  async messageLink({ chatId, messageId }) {
+    requireInt64Id(chatId, 'chat ID');
+    requireInt64Id(messageId, 'message ID');
+    const response = await this.gateway.call(1150, 'MessageLinkRequest', { chatId, type: 1, messageId }, { operation: 'message-link' });
+    let result, url;
+    try {
+      result = this.gateway.decode('MessageLinkResponse', response.packet.payload);
+      url = new URL(result.url);
+    } catch { throw new FeishuError('INVALID_RESPONSE', 'No valid message link was returned.'); }
+    if (url.protocol !== 'https:' || url.hostname !== 'applink.feishu.cn' || url.pathname !== '/client/message/link/open' || !result.token || url.searchParams.get('token') !== result.token) {
+      throw new FeishuError('INVALID_RESPONSE', 'No valid message link was returned.');
+    }
+    return { chatId, messageId, url: url.href };
+  }
+
+  async editMessage({ messageId, text }) {
+    requireInt64Id(messageId, 'message ID');
+    requireText(text, 'text');
+    await this.gateway.authenticate();
+    const paragraph = '2', element = '3', cid = shortId();
+    const response = await this.gateway.call(900010, 'EditMessageRequest', {
+      messageId, cid, type: 4, content: { extra: new Uint8Array(), richText: {
+        elementIds: [paragraph], innerText: text, elements: { dictionary: {
+          [paragraph]: { tag: 3, property: new Uint8Array(), childIds: [element] },
+          [element]: { tag: 1, property: this.gateway.encode('TextProperty', { content: text }) },
+        } },
+      } },
+    }, { version: '8.5.0', mutating: true, operation: 'edit-message' });
+    return { status: 'submitted_unconfirmed', messageId, requestId: response.requestId };
+  }
+
+  async forwardMessage({ chatId, messageId, targetChatId }) {
+    requireInt64Id(chatId, 'source chat ID');
+    requireInt64Id(messageId, 'message ID');
+    requireInt64Id(targetChatId, 'target chat ID');
+    const cid = randomUUID();
+    const response = await this.gateway.call(51, 'ForwardMessageRequest', {
+      sourceChatId: chatId, messageId, targetCids: { [targetChatId]: cid }, type: 1,
+      targets: { [targetChatId]: { type: 1 } }, extra: new Uint8Array(),
+    }, { version: '8.5.0', mutating: true, operation: 'forward-message' });
+    return { status: 'submitted_unconfirmed', chatId, messageId, targetChatId, cid, requestId: response.requestId };
+  }
+
+  async recallMessage(messageId) {
+    requireInt64Id(messageId, 'message ID');
+    const response = await this.gateway.call(9, 'RecallMessageRequest', { messageId },
+      { version: '8.5.0', mutating: true, operation: 'recall-message' });
+    return { status: 'submitted_unconfirmed', messageId, requestId: response.requestId };
+  }
+
+  async favoriteMessage({ chatId, messageId }) {
+    requireInt64Id(chatId, 'chat ID');
+    requireInt64Id(messageId, 'message ID');
+    const response = await this.gateway.call(500, 'PutFavoriteRequest', { favs: [{ id: messageId, type: 1, chatId }] },
+      { version: '8.5.0', mutating: true, operation: 'favorite-message' });
+    let favoriteId = null;
+    try {
+      const ids = this.gateway.decode('PutFavoriteResponse', response.packet.payload).ids;
+      if (ids.length === 1 && /^\d+$/.test(String(ids[0])) && String(ids[0]) !== '0') favoriteId = String(ids[0]);
+    } catch { /* Submission remains unconfirmed. */ }
+    return { status: favoriteId ? 'accepted' : 'submitted_unconfirmed', chatId, messageId, favoriteId, requestId: response.requestId };
+  }
+
+  async removeFavorite(favoriteId) {
+    requireInt64Id(favoriteId, 'favorite ID');
+    const response = await this.gateway.call(502, 'DeleteFavoriteRequest', { ids: [favoriteId] },
+      { version: '8.5.0', mutating: true, operation: 'remove-favorite' });
+    return { status: 'submitted_unconfirmed', favoriteId, requestId: response.requestId };
+  }
+
+  async favorites({ limit = 50 } = {}) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new FeishuError('INVALID_ARGUMENT', 'limit must be between 1 and 100.');
+    const response = await this.gateway.call(503, 'PullAllFavoritesRequest', { lastId: '0', count: limit }, { operation: 'favorites' });
+    let result;
+    try { result = this.gateway.decode('PullAllFavoritesResponse', response.packet.payload); }
+    catch { throw new FeishuError('INVALID_RESPONSE', 'The favorites response was unreadable.'); }
+    const items = result.favs.map(fav => {
+      let message = null;
+      if (fav.type === 1 && fav.content?.length) {
+        try {
+          const m = this.gateway.decode('MessageEntity', fav.content);
+          let text = null;
+          if (m.content?.length && (m.type === 4 || m.type === 2)) {
+            const body = this.gateway.decode(m.type === 4 ? 'TextContent' : 'PostContent', m.content);
+            text = body.richText?.innerText || body.text || null;
+          }
+          message = { id: m.id || null, chatId: m.chatId || null, senderId: m.fromId || null, type: m.type, text };
+        } catch { /* Keep the favorite ID if its content type is not understood. */ }
+      }
+      return { id: String(fav.id), createTime: Object.hasOwn(fav, 'createTime') ? String(fav.createTime) : null, type: fav.type, message };
+    });
+    return { items, hasMore: !!result.hasMore };
   }
 
   async send({ chatId, text, mentions = [], replyTo, replyRoot }) {

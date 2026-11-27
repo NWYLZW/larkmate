@@ -10,7 +10,7 @@ import { FeishuError } from '../src/errors.js';
 import { exportMessages } from '../src/export-messages.js';
 
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.6');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.7');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.exitOverride();
 
@@ -36,6 +36,11 @@ program.command('status').description('Check the current user login.')
 program.command('search').description('Search users, bots and groups.')
   .requiredOption('--query <text>', 'search text')
   .action(async options => output(await (await client()).search(options.query)));
+program.command('search-messages').description('Search accessible messages across conversations.')
+  .requiredOption('--query <text>', 'search text')
+  .option('--limit <number>', 'results per page, 1 to 100', '20')
+  .option('--cursor <cursor>', 'continue the same query from the previous page')
+  .action(async o => output(await (await client()).searchMessages({ query: o.query, limit: Number(o.limit), cursor: o.cursor })));
 
 program.command('chats').description('List a page of inbox chats without opening them.')
   .option('--limit <number>', 'inbox cards per page, 1 to 100', '50')
@@ -180,6 +185,49 @@ program.command('send-file').description('Upload and send a local file as the us
   .requiredOption('--chat <id>', 'numeric chat ID')
   .requiredOption('--file <path>', 'local file path')
   .action(async options => output(await (await client()).sendFile({ chatId: options.chat, path: options.file })));
+program.command('send-image').description('Upload and send a local image as the user.')
+  .requiredOption('--chat <id>', 'numeric chat ID')
+  .requiredOption('--file <path>', 'local PNG, JPEG, GIF or WebP file')
+  .action(async o => output(await (await client()).sendImage({ chatId: o.chat, path: o.file })));
+
+for (const [name, remove] of [['reaction-add', false], ['reaction-remove', true]]) {
+  program.command(name).description(remove ? 'Remove a reaction from a message.' : 'Add a reaction to a message.')
+    .requiredOption('--message <id>', 'numeric message ID')
+    .option('--emoji <name>', 'Feishu reaction name', 'DarkThumbsup')
+    .action(async o => output(await (await client()).reaction({ messageId: o.message, emoji: o.emoji, remove })));
+}
+program.command('download-file').description('Download a message file or image to a new local file.')
+  .requiredOption('--chat <id>', 'numeric chat ID')
+  .requiredOption('--message <id>', 'numeric message ID')
+  .requiredOption('--key <key>', 'file or image key from history')
+  .requiredOption('--output <path>', 'new local output file')
+  .action(async o => output(await (await client()).downloadFile({ chatId: o.chat, messageId: o.message, key: o.key, output: o.output })));
+program.command('message-link').description('Get the native link to a message.')
+  .requiredOption('--chat <id>', 'numeric chat ID')
+  .requiredOption('--message <id>', 'numeric message ID')
+  .action(async o => output(await (await client()).messageLink({ chatId: o.chat, messageId: o.message })));
+program.command('message-edit').description('Replace the text of your own message.')
+  .requiredOption('--message <id>', 'numeric message ID')
+  .requiredOption('--text <text>', 'replacement text')
+  .action(async o => output(await (await client()).editMessage({ messageId: o.message, text: o.text })));
+program.command('message-forward').description('Forward one message to a chat.')
+  .requiredOption('--chat <id>', 'source numeric chat ID')
+  .requiredOption('--message <id>', 'numeric message ID')
+  .requiredOption('--to <id>', 'target numeric chat ID')
+  .action(async o => output(await (await client()).forwardMessage({ chatId: o.chat, messageId: o.message, targetChatId: o.to })));
+program.command('message-recall').description('Recall a message.')
+  .requiredOption('--message <id>', 'numeric message ID')
+  .action(async o => output(await (await client()).recallMessage(o.message)));
+program.command('favorite-add').description('Add a message to your favorites.')
+  .requiredOption('--chat <id>', 'numeric chat ID')
+  .requiredOption('--message <id>', 'numeric message ID')
+  .action(async o => output(await (await client()).favoriteMessage({ chatId: o.chat, messageId: o.message })));
+program.command('favorite-remove').description('Remove an item from your favorites.')
+  .requiredOption('--favorite <id>', 'favorite ID returned by favorite-add')
+  .action(async o => output(await (await client()).removeFavorite(o.favorite)));
+program.command('favorites').description('Read the first page of your favorite messages.')
+  .option('--limit <number>', 'maximum items, 1 to 100', '50')
+  .action(async o => output(await (await client()).favorites({ limit: Number(o.limit) })));
 
 program.command('group-create').description('Create a group as the user.')
   .requiredOption('--name <name>', 'group name')

@@ -79,6 +79,11 @@ message PutMessageRequest {
   optional bool isNotified = 7;
   optional bool sendToChat = 8;
   optional int32 version = 9;
+  optional bool isReplyInThread = 12;
+  optional bool isShare = 15;
+  optional bytes aiInfoContext = 16;
+  optional bool syncToChat = 17;
+  optional int32 observedField20 = 20;
 }
 
 // --- Receive Messages (WebSocket push) ---
@@ -375,6 +380,7 @@ message SearchCommonRequestHeader {
   optional SearchContext searchContext = 5;
   optional string locale = 6;
   optional int32 pageSize = 11;
+  optional SearchStorageInfo storageInfo = 12;
 
   message SearchContext {
     optional string tagName = 1;
@@ -406,6 +412,7 @@ enum SearchEntityType {
   SEARCH_USER = 1;
   SEARCH_BOT = 2;
   SEARCH_GROUP_CHAT = 3;
+  SEARCH_MESSAGE = 5;
 }
 
 message UniversalSearchResponse {
@@ -414,9 +421,16 @@ message UniversalSearchResponse {
 }
 
 message SearchResponseHeader {
+  optional string searchSession = 1;
+  optional int32 sessionSeqId = 2;
   optional int32 total = 3;
   optional bool hasMore = 4;
+  optional string paginationToken = 5;
+  optional SearchStorageInfo storageInfo = 7;
+  optional int32 errorCode = 9;
+  optional bool secondaryStageSearchable = 11;
 }
+message SearchStorageInfo { optional bool isNeedColdData = 1; optional int32 timeSize = 2; optional int32 timeUnit = 3; optional string timeText = 4; optional int32 hasMoreInfo = 5; }
 
 message SearchResult {
   optional string id = 1;
@@ -424,6 +438,17 @@ message SearchResult {
   optional string titleHighlighted = 3;
   optional string summaryHighlighted = 4;
   optional string avatarKey = 6;
+  optional SearchResultMeta meta = 7;
+}
+message SearchResultMeta { optional SearchMessageMeta message = 5; }
+message SearchMessageMeta {
+  optional string messageId = 1;
+  optional int32 type = 2;
+  optional int64 createTime = 3;
+  optional int64 updateTime = 4;
+  optional int32 position = 5;
+  optional string chatId = 6;
+  optional string senderId = 8;
 }
 
 // --- User Info (cmd=5023) ---
@@ -489,8 +514,44 @@ message CompleteFileUploadRequest {
   optional string fileName = 4;
   optional string mime = 5;
 }
-message CompleteFileUploadResponse { optional int32 code = 1; }
+message CompleteFileUploadResponse { optional int32 code = 1; optional string fileKey = 2; }
 message PutMessageResponse { optional MessageEntity message = 1; }
+// User reaction operations (web gateway commands 25 and 26).
+message MessageReactionRequest {
+  optional string messageId = 1;
+  optional string reactionType = 2;
+  optional int32 reactionStrategyVersion = 3;
+}
+message MessageLinkRequest {
+  optional uint64 chatId = 1;
+  optional int32 type = 2;
+  optional uint64 messageId = 3;
+}
+message MessageLinkResponse { optional string token = 1; optional string url = 2; }
+message EditMessageContent { optional RichText richText = 1; optional bytes extra = 4; }
+message EditMessageRequest {
+  optional uint64 messageId = 1;
+  optional string cid = 2;
+  optional int32 type = 3;
+  optional EditMessageContent content = 4;
+}
+message ForwardTarget { optional int32 type = 1; }
+message ForwardMessageRequest {
+  optional string sourceChatId = 1;
+  optional string messageId = 2;
+  map<string, string> targetCids = 3;
+  optional int32 type = 4;
+  map<string, ForwardTarget> targets = 6;
+  optional bytes extra = 9;
+}
+message RecallMessageRequest { optional string messageId = 1; }
+message FavoriteTarget { optional int64 id = 1; optional int32 type = 2; optional int64 chatId = 3; }
+message PutFavoriteRequest { repeated FavoriteTarget favs = 1; }
+message PutFavoriteResponse { repeated int64 ids = 1; }
+message DeleteFavoriteRequest { repeated int64 ids = 1; }
+message FavoriteObject { optional int64 id = 1; optional int64 createTime = 2; optional int32 type = 3; optional bytes content = 4; }
+message PullAllFavoritesRequest { optional int64 lastId = 1; optional int32 count = 2; }
+message PullAllFavoritesResponse { repeated FavoriteObject favs = 1; optional bool hasMore = 2; }
 message FileContent {
   optional string key = 1;
   optional string name = 2;

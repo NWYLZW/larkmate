@@ -4,14 +4,39 @@ LarkMate 是一个独立的飞书用户身份命令行工具，可以查询会�
 
 ## 安装与登录
 
-需要 Node.js 20 或更新版本。安装 CLI 和 Agent Skill：
+需要 Node.js 20 或更新版本。可以让 AI 帮你安装，也可以自己执行命令。
+
+### 方式一：让 AI 安装
+
+把下面的提示词发给有本机终端访问能力的 AI 编程助手，让它安装 CLI 和当前助手适用的 Skill：
+
+```text
+请帮我在这台电脑上安装 LarkMate CLI 和当前 AI 助手适用的 LarkMate Skill。
+项目地址：https://github.com/NWYLZW/larkmate
+
+请检查 Node.js 版本（需要 20 或更新版本），并使用公共 npm 安装：
+npm install -g larkmate --registry=https://registry.npmjs.org/
+
+请为当前 AI 助手安装 Skill：
+npx --registry=https://registry.npmjs.org/ skills add NWYLZW/larkmate --skill larkmate -g
+非交互安装时，根据当前助手选择 --agent，并使用 -y。
+
+请验证 CLI 和 Skill 均可用，保留已有的登录配置。如果尚未登录，请引导我在本机安全配置；
+不要让我在对话中发送 Cookie、密码或验证码。完成后告诉我安装和登录状态。
+```
+
+安装后访问飞书还需要用户的登录态；如果没有可用的 Cookie，AI 会引导你在本机配置。
+
+### 方式二：手动安装
+
+在终端运行：
 
 ```sh
 npm install -g larkmate --registry=https://registry.npmjs.org/
 npx --registry=https://registry.npmjs.org/ skills add NWYLZW/larkmate --skill larkmate -g
 ```
 
-完整步骤及源码安装方式见 [快速安装](INSTALL.md)，Agent 使用指引见 [LarkMate Skill](skills/larkmate/SKILL.md)。
+按提示选择需要安装 Skill 的 AI 助手。完整步骤、登录配置及源码安装方式见 [快速安装](INSTALL.md)，Agent 使用指引见 [LarkMate Skill](skills/larkmate/SKILL.md)。
 
 默认从 `~/.larkmate/credentials.json` 读取登录信息，格式为 `{ "cookie": "..." }`。将目录和文件分别设为仅当前用户可访问（权限 `700` 和 `600`）。也可以通过 `LARKMATE_HOME` 指定配置目录，或通过 `LARKMATE_COOKIE` 提供 Cookie；`--credentials-file` 可指定其他相同格式的文件。读取顺序为指定文件、环境变量、配置目录。不要把真实 Cookie 写进命令参数、聊天记录或代码仓库。Cookie 过期后需更新，再用 `larkmate status` 检查。
 

@@ -9,6 +9,8 @@ description: 使用 LarkMate 以当前飞书网页版用户身份管理会话、
 
 若运行环境提供 `LARKMATE_BROKER` 和 `LARKMATE_BROKER_TOKEN_FILE`，使用受限代理并先执行 `larkmate broker-info`。错误码或导出错误的 `cause` 为 `POLICY_DENIED` 时，不尝试绕过或读取 Cookie；由代理所有者调整授权。账号隔离、策略和可用命令见 [Agent 权限委托指南](https://github.com/NWYLZW/larkmate/blob/main/docs/agent-broker.md)。
 
+若环境提供 `LARKMATE_DELEGATE_OWNER` 和 `LARKMATE_DELEGATE_LAUNCHER`，使用系统用户委托并先执行 `larkmate delegate-info`。权限未预先开放时调用可能等待所有者审批；拒绝或失败时不尝试绕过。不要同时配置委托和本地代理，部署见 [系统用户权限委托](https://github.com/NWYLZW/larkmate/blob/main/docs/os-delegation.md)。
+
 根据任务读取所需参考：
 
 - 查找会话、搜索与导出消息、获取链接、下载资源，以及管理会话状态和标签： [会话与消息](references/chats.md)。

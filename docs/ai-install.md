@@ -22,9 +22,11 @@
 
 ## 登录与使用
 
+若环境中已配置 `LARKMATE_DELEGATE_OWNER` 和 `LARKMATE_DELEGATE_LAUNCHER`，请先运行 `larkmate delegate-info`，通过系统用户委托使用 LarkMate，无需读取或配置 Cookie。遇到权限不足时遵循审批结果，不尝试绕过；具体部署见 [系统用户权限委托](https://github.com/NWYLZW/larkmate/blob/main/docs/os-delegation.md)。
+
 若运行环境中已配置 `LARKMATE_BROKER` 和 `LARKMATE_BROKER_TOKEN_FILE`，请先运行 `larkmate broker-info`，通过受限代理使用 LarkMate，无需读取或配置 Cookie。当代理权限不足时，应说明具体情况，由所有者决定是否调整权限；具体部署见 [Agent 权限委托指南](https://github.com/NWYLZW/larkmate/blob/main/docs/agent-broker.md)。
 
-未使用受限代理时，LarkMate 默认从 `~/.larkmate/credentials.json` 读取 Cookie，也支持 `LARKMATE_HOME`、`LARKMATE_COOKIE` 和 `--credentials-file`。先保留并检查已有登录态，可用 `larkmate status` 验证；不要读取或打印 Cookie 的值到对话、日志或命令参数中。
+未使用系统用户委托或受限代理时，LarkMate 默认从 `~/.larkmate/credentials.json` 读取 Cookie，也支持 `LARKMATE_HOME`、`LARKMATE_COOKIE` 和 `--credentials-file`。先保留并检查已有登录态，可用 `larkmate status` 验证；不要读取或打印 Cookie 的值到对话、日志或命令参数中。
 
 如果没有可用登录态，引导用户在本机安全配置，不要要求用户把 Cookie、密码或验证码发到对话中。配置格式和手动步骤见 [快速安装](https://github.com/NWYLZW/larkmate/blob/main/INSTALL.md)。不能自动完成登录时，如实说明，不声称已经登录。
 

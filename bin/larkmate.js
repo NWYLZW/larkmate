@@ -9,12 +9,15 @@ import { writeFile } from 'node:fs/promises';
 import { FeishuError } from '../src/errors.js';
 import { exportMessages } from '../src/export-messages.js';
 import { brokerCall, brokerCommands, brokerProxy, createBrokerToken, loadBrokerToken, loadPolicy, startBroker } from '../src/agent-broker.js';
+import { callOsDelegate, osDelegateProxy } from '../src/os-delegate-client.js';
 
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.9');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.10');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.option('--broker <path>', 'use a restricted local broker socket (or LARKMATE_BROKER)');
 program.option('--broker-token-file <path>', 'read the agent token (or LARKMATE_BROKER_TOKEN_FILE)');
+program.option('--delegate-owner <user>', 'execute through a protected OS-user delegate (or LARKMATE_DELEGATE_OWNER)');
+program.option('--delegate-launcher <path>', 'protected delegate launcher (or LARKMATE_DELEGATE_LAUNCHER)');
 program.exitOverride();
 let activeCommand;
 program.hook('preAction', (_program, command) => { activeCommand = command.name(); });
@@ -24,7 +27,16 @@ const output = value => process.stdout.write(`${JSON.stringify({ ok: true, ...va
 
 function configuredBroker() { return program.opts().broker || process.env.LARKMATE_BROKER || null; }
 function configuredBrokerToken() { return program.opts().brokerTokenFile || process.env.LARKMATE_BROKER_TOKEN_FILE || null; }
+function configuredDelegate() {
+  const owner = program.opts().delegateOwner || process.env.LARKMATE_DELEGATE_OWNER;
+  const launcher = program.opts().delegateLauncher || process.env.LARKMATE_DELEGATE_LAUNCHER;
+  if (!!owner !== !!launcher) throw new FeishuError('DELEGATE_CONFIG_INVALID', 'Both delegate owner and launcher are required.');
+  if (owner && (configuredBroker() || configuredBrokerToken() || program.opts().credentialsFile)) throw new FeishuError('DELEGATE_CONFIG_INVALID', 'Do not combine OS delegation with broker or credentials options.');
+  return owner ? { owner, launcher } : null;
+}
 function proxy(service) {
+  const delegate = configuredDelegate();
+  if (delegate) return osDelegateProxy(delegate.owner, delegate.launcher, service, () => activeCommand);
   const path = configuredBroker();
   if (!path && configuredBrokerToken()) throw new FeishuError('BROKER_CONFIGURATION_INVALID', 'A broker token file was configured without a broker socket.');
   if (path && program.opts().credentialsFile) throw new FeishuError('INVALID_ARGUMENT', 'A broker client cannot select a credentials file.');
@@ -53,6 +65,16 @@ async function minutes() {
 program.command('broker-commands').description('List operations supported by the agent broker and their scopes.')
   .action(() => output({ items: brokerCommands() }));
 
+program.command('delegate-commands').description('List operations supported by OS-user delegation and their scopes.')
+  .action(() => output({ items: brokerCommands() }));
+
+program.command('delegate-info').description('Show the current OS-user delegation permissions.')
+  .action(async () => {
+    const delegate = configuredDelegate();
+    if (!delegate) throw new FeishuError('DELEGATE_CONFIG_INVALID', 'Configure the delegate owner and launcher.');
+    output(await callOsDelegate({ ...delegate, request: { command: 'delegate-info' } }));
+  });
+
 program.command('broker-token-create').description('Create a private token for one agent broker.')
   .requiredOption('--output <path>', 'absolute path for a new token file')
   .action(async o => { await createBrokerToken(o.output); output({ status: 'created', output: o.output }); });
@@ -62,7 +84,7 @@ program.command('broker-serve').description('Start a restricted local agent brok
   .requiredOption('--policy <path>', 'absolute JSON policy path')
   .requiredOption('--token-file <path>', 'absolute owner-controlled agent token file')
   .action(async o => {
-    if (configuredBroker()) throw new FeishuError('INVALID_ARGUMENT', 'Start the broker directly, without --broker or LARKMATE_BROKER.');
+    if (configuredBroker() || configuredDelegate()) throw new FeishuError('INVALID_ARGUMENT', 'Start the broker directly, without a broker or OS delegate.');
     const policy = await loadPolicy(o.policy);
     const token = await loadBrokerToken(o.tokenFile, { owner: true });
     let promise;
@@ -256,7 +278,7 @@ program.command('download-file').description('Download a message file or image t
   .requiredOption('--chat <id>', 'numeric chat ID')
   .requiredOption('--message <id>', 'numeric message ID')
   .requiredOption('--key <key>', 'file or image key from history')
-  .option('--position <number>', 'message position from history (required by a restricted broker)')
+  .option('--position <number>', 'message position from history (required by a broker or OS delegate)')
   .requiredOption('--output <path>', 'new local output file')
   .action(async o => output(await (await client()).downloadFile({ chatId: o.chat, messageId: o.message, key: o.key, output: o.output, ...(o.position != null ? { position: Number(o.position) } : {}) })));
 program.command('message-link').description('Get the native link to a message.')

@@ -3,6 +3,7 @@ node_modules/
 .env.*
 *.cookie
 credentials.json
+delegate-policy.json
 coverage/
 .private-test/
 *.log

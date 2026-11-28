@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "ownerUid": 1000,
+  "credentialsFile": "/absolute/owner-only/credentials.json",
+  "users": {
+    "1001": {
+      "policy": {
+        "version": 1,
+        "allow": ["chat-info", "history"],
+        "chatIds": [],
+        "minuteTokens": [],
+        "allowAllChats": false,
+        "allowAllMinutes": false,
+        "allowGlobal": false,
+        "maxFileBytes": 104857600
+      },
+      "approvalScript": "/absolute/owner-controlled/approve",
+      "approvalTimeoutSeconds": 300
+    }
+  }
+}

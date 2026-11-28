@@ -118,7 +118,7 @@ export function authorize(policy, request) {
   if (scope === 'global' && !policy.allowGlobal) denied();
   if (['allChats', 'labelTrue', 'labelFalse', 'reactionAdd', 'reactionRemove'].includes(scope) && (!policy.allowGlobal || !policy.allowAllChats)) denied();
   if (scope === 'allMinutes' && (!policy.allowGlobal || !policy.allowAllMinutes)) denied();
-  if (scope === 'file' && (args.length !== 1 || !only(args[0], ['chatId']) || !chatAllowed(args[0].chatId))) denied();
+  if (scope === 'file' && (args.length !== 1 || !only(args[0], method === 'download' ? ['chatId', 'messageId', 'key', 'position'] : ['chatId']) || !chatAllowed(args[0].chatId))) denied();
   if (['labelTrue', 'labelFalse'].includes(scope) && (args.length !== 3 || args[2] !== (scope === 'labelTrue'))) denied();
   if (['reactionAdd', 'reactionRemove'].includes(scope) && (args.length !== 1 || !only(args[0], ['messageId', 'emoji', 'remove']) || args[0].remove !== (scope === 'reactionRemove'))) denied();
   if (['chatArg', 'chatTrue', 'chatFalse'].includes(scope)) {

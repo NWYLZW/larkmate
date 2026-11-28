@@ -35,12 +35,17 @@ larkmate group-requests --chat "$CHAT_ID"
 larkmate group-create --name '群名称' --member "$MEMBER_ID"
 larkmate group-invite --chat "$CHAT_ID" --member "$MEMBER_ID"
 larkmate group-update --chat "$CHAT_ID" --name '新名称'
+larkmate group-update --chat "$CHAT_ID" --description '新描述'
+larkmate group-avatar-set --chat "$CHAT_ID" --file ./avatar.png
+larkmate group-nickname-set --chat "$CHAT_ID" --nickname '群昵称'
 larkmate group-bot-info --chat "$CHAT_ID" --bot "$BOT_ID"
 larkmate group-bot-protection --chat "$CHAT_ID" --bot "$BOT_ID" --allow-member-removal
 larkmate group-dissolve --chat "$CHAT_ID"
 ```
 
-`--member` 可重复指定。创建或邀请机器人默认限制普通成员移除，`--allow-member-removal` 可关闭该限制。`verified` 只表示机器人移除限制已读回。遇到 `GROUP_CREATED_PARTIAL` 或 `INVITE_PARTIAL` 时，先检查已产生的群或成员变化，不要盲目重复操作。
+`--member` 可重复指定。创建或邀请机器人默认限制普通成员移除，`--allow-member-removal` 可关闭该限制。机器人邀请结果中的 `verified` 表示移除限制已读回。遇到 `GROUP_CREATED_PARTIAL` 或 `INVITE_PARTIAL` 时，先检查已产生的群或成员变化，不要盲目重复操作。
+
+群头像支持 PNG、JPEG 和 WebP 格式，文件大小上限为 10 MiB。通过委托或代理调用时，图片由调用方读取，并受目标会话及文件大小授权限制。群昵称传入空字符串可清除。
 
 `group-settings` 可读取群主、公告、发言和群权限设置；`group-settings-schema` 列出可修改的字段与值。使用 `group-settings-set --chat "$CHAT_ID" --json <文件>` 修改所需字段，`--json -` 从标准输入读取。它会按字段更新，并可配置入群审批、邀请、@全体、历史消息可见性及受限模式等；修改前先读取当前设置。群公告暂不支持修改。
 

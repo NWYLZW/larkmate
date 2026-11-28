@@ -34,6 +34,12 @@ larkmate messages-export --chat "$CHAT_ID" --sender "$MEMBER_ID" --after 1700000
 larkmate pinned
 larkmate marked
 larkmate chat-state --chat "$CHAT_ID"
+larkmate chat-preferences --chat "$CHAT_ID"
+larkmate chat-preferences-set --chat "$CHAT_ID" --mute-at-all true --auto-translate false
+larkmate contact-alias --user "$USER_ID"
+larkmate contact-alias-set --user "$USER_ID" --alias '备注名'
+larkmate contact-note --user "$USER_ID"
+larkmate contact-note-set --user "$USER_ID" --description '备注描述'
 larkmate pin --chat "$CHAT_ID"       # 取消置顶：unpin
 larkmate mark --chat "$CHAT_ID"      # 取消旗帜标记：unmark
 larkmate unread --chat "$CHAT_ID"    # 标为已读：read
@@ -47,6 +53,10 @@ larkmate label-remove --label "$LABEL_ID" --chat "$CHAT_ID"
 ```
 
 `mark` 对应聊天右键菜单的旗帜“标记”。`read` 会推进到调用时最新可见位置并清除手动未读标记；`unread` 可能把已完成会话放回收件箱。标签创建、重命名和删除分别使用 `label-create`、`label-rename`、`label-delete`，会话成员调整仅支持手动标签。删除标签会删除整个个人标签。
+
+`chat-clear-history --chat "$CHAT_ID"` 清空当前用户的聊天记录，范围截止于调用时读取到的最后消息位置。该操作不可轻率调用，须有用户明确意图；返回 `submitted_unconfirmed` 时先检查记录，不盲目重试。
+
+联系人备注仅对当前用户生效。`contact-note-set` 修改纯文本描述；备注包含图片或复杂格式时拒绝修改，以保护现有内容。传入空字符串可清除备注名或描述。`--mute-at-all` 控制是否屏蔽 @所有人提醒，`--auto-translate` 控制消息自动翻译，两者均使用 `true` 或 `false`。
 
 `group-query` 支持消息、未读、免打扰、@我、单聊、群组、话题群、云文档、话题和已完成分组；可按名称筛选，使用 `nextCursor` 继续扫描。收纳盒需以 `--parent` 单独查询，`unknownState` 表示无法确定状态的数量。@我通过未读提及消息匹配会话，可能与飞书界面显示不同。标记和标签分别用 `marked`、`labels` 和 `label-chats` 查询。
 

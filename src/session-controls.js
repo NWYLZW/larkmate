@@ -198,6 +198,30 @@ export class SessionControls {
     return !x.isRemind;
   }
 
+  async preferences(chatId) {
+    numeric(chatId, 'chat ID');
+    const p = await this.read(62, 'PullChatSettingsRequest', { chatIds: [chatId] }, 'PullChatSettingsResponse');
+    const x = p.chatSettings?.[chatId];
+    if (!x) throw new FeishuError('STATE_UNAVAILABLE', 'Conversation settings were not returned.');
+    return { chatId, muteAtAll: own(x, 'isMuteAtAll') ? x.isMuteAtAll : null,
+      autoTranslate: own(x, 'isAutoTranslate') ? x.isAutoTranslate : null };
+  }
+
+  async setPreference({ chatId, muteAtAll, autoTranslate }) {
+    numeric(chatId, 'chat ID');
+    const settings = {}, fields = [];
+    for (const [name, value, field, id] of [['muteAtAll', muteAtAll, 'isMuteAtAll', 6], ['autoTranslate', autoTranslate, 'isAutoTranslate', 4]]) {
+      if (value !== undefined) {
+        if (typeof value !== 'boolean') throw new FeishuError('INVALID_ARGUMENT', `${name} must be a boolean.`);
+        settings[field] = value; fields.push(id);
+      }
+    }
+    if (!fields.length) throw new FeishuError('INVALID_ARGUMENT', 'Specify at least one preference.');
+    const result = await this.verified(() => this.write(60, 'PatchChatSettingRequest', { chatId, chatSetting: settings, updateChatSettingField: fields }),
+      async () => { const after = await this.preferences(chatId); return (muteAtAll === undefined || after.muteAtAll === muteAtAll) && (autoTranslate === undefined || after.autoTranslate === autoTranslate); });
+    return { ...result, chatId };
+  }
+
   async setMute(chatId, enabled) {
     const before = await this.muted(chatId);
     if (before === enabled) return { status: 'already_set', chatId, muted: enabled };

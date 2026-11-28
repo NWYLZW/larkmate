@@ -18,7 +18,7 @@ import { GroupManagement, groupSettingsSchema } from '../src/group-management.js
 
 const defaultTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.14');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.15');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.option('--broker <path>', 'use a restricted local broker socket (or LARKMATE_BROKER)');
 program.option('--broker-token-file <path>', 'read the agent token (or LARKMATE_BROKER_TOKEN_FILE)');
@@ -278,6 +278,13 @@ for (const [command, enabled] of [['label-add', true], ['label-remove', false]])
 }
 program.command('chat-state').description('Read pin, flag, notification and read state for a conversation.')
   .requiredOption('--chat <id>', 'numeric chat ID').action(async o => output(await (await controls()).state(o.chat)));
+program.command('chat-preferences').description('Read conversation notification and translation preferences.').requiredOption('--chat <id>')
+  .action(async o => output(await (await controls()).preferences(o.chat)));
+program.command('chat-preferences-set').description('Update conversation notification and translation preferences.').requiredOption('--chat <id>')
+  .option('--mute-at-all <bool>', 'suppress @all notifications: true or false').option('--auto-translate <bool>', 'automatically translate messages: true or false')
+  .action(async o => { const parse = value => { if (value === undefined) return undefined; if (!['true','false'].includes(value)) throw new FeishuError('INVALID_ARGUMENT', 'Use true or false.'); return value === 'true'; }; output(await (await controls()).setPreference({ chatId:o.chat, muteAtAll:parse(o.muteAtAll), autoTranslate:parse(o.autoTranslate) })); });
+program.command('chat-clear-history').description('Clear this conversation history through its current last message.').requiredOption('--chat <id>')
+  .action(async o => output(await (await client()).clearChatHistory({ chatId: o.chat })));
 for (const [command, method, enabled, description] of [
   ['pin', 'pin', true, 'Pin a conversation.'], ['unpin', 'pin', false, 'Unpin a conversation.'],
   ['mark', 'mark', true, 'Flag a conversation.'], ['unmark', 'mark', false, 'Remove a conversation flag.'],
@@ -475,6 +482,19 @@ program.command('group-update').description('Change a group name or description.
   .action(async options => output(await (await client()).updateGroup({
     chatId: options.chat, name: options.name, description: options.description,
   })));
+
+program.command('contact-alias').description('Read your personal alias for a contact.').requiredOption('--user <id>')
+  .action(async o => output(await (await client()).contactAlias({ userId: o.user })));
+program.command('contact-alias-set').description('Set or clear your personal alias for a contact.').requiredOption('--user <id>').requiredOption('--alias <text>', 'use an empty string to clear')
+  .action(async o => output(await (await client()).setContactAlias({ userId: o.user, alias: o.alias })));
+program.command('contact-note').description('Read your personal note for a contact.').requiredOption('--user <id>')
+  .action(async o => output(await (await client()).contactNote({ userId: o.user })));
+program.command('contact-note-set').description('Set or clear the plain-text note for a contact.').requiredOption('--user <id>').requiredOption('--description <text>', 'use an empty string to clear')
+  .action(async o => output(await (await client()).setContactNote({ userId: o.user, description: o.description })));
+program.command('group-nickname-set').description('Set your nickname in a group.').requiredOption('--chat <id>').requiredOption('--nickname <text>', 'use an empty string to clear')
+  .action(async o => output(await (await client()).setGroupNickname({ chatId: o.chat, nickname: o.nickname })));
+program.command('group-avatar-set').description('Set a group avatar from an image.').requiredOption('--chat <id>').requiredOption('--file <path>')
+  .action(async o => output(await (await client()).setGroupAvatar({ chatId: o.chat, path: o.file })));
 
 program.command('group-dissolve').description('Dissolve a group as its owner.')
   .requiredOption('--chat <id>', 'numeric group ID')

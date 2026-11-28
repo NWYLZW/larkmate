@@ -3,6 +3,7 @@ import { FeishuError, requireNumericId, requireInt64Id, requireText } from './er
 import { shortId } from './gateway.js';
 import { downloadFile } from './download.js';
 import { randomUUID } from 'node:crypto';
+import { open } from 'node:fs/promises';
 
 function ids(values, label) {
   if (!Array.isArray(values)) throw new FeishuError('INVALID_ARGUMENT', `${label} must be a list.`);
@@ -23,6 +24,99 @@ function decodedPayload(gateway, response, type, operation) {
 
 export class LarkMateClient {
   constructor(gateway) { this.gateway = gateway; }
+
+  async contactAlias({ userId }) {
+    requireInt64Id(userId, 'user ID');
+    const r = await this.gateway.call(5031, 'PullContactProfileV2Request', { scene: 1, userId, useNewLayout: true }, { operation: 'contact-alias' });
+    const p = this.gateway.decode('PullContactProfileV2Response', r.packet.payload);
+    if (!p.profile || !Array.isArray(p.profile.fields)) throw new FeishuError('STATE_UNAVAILABLE', 'Contact profile was not returned.');
+    const field = p.profile.fields.find(x => x.fieldValueType === 50 && x.key === 'B-ALIAS');
+    if (!field) return { userId, alias: '' };
+    try { const alias = JSON.parse(field.strFieldVal).text.default_val; if (typeof alias !== 'string') throw new Error(); return { userId, alias }; }
+    catch { throw new FeishuError('INVALID_RESPONSE', 'Contact alias was unreadable.'); }
+  }
+
+  async contactNote({ userId }) {
+    requireInt64Id(userId, 'user ID');
+    const r = await this.gateway.call(5031, 'PullContactProfileV2Request', { scene: 1, userId, useNewLayout: true }, { operation: 'contact-note' });
+    const p = this.gateway.decode('PullContactProfileV2Response', r.packet.payload);
+    if (!p.profile || !Array.isArray(p.profile.fields)) throw new FeishuError('STATE_UNAVAILABLE', 'Contact profile was not returned.');
+    const field = p.profile.fields.find(x => x.fieldValueType === 105 && x.key === 'B-MEMO-DESCRIPTION');
+    if (!field) return { userId, description: '', hasImages: false, hasRichText: false };
+    try {
+      const note = JSON.parse(field.strFieldVal);
+      const elements = Object.values(note.memo_text_v2?.elements?.dictionary || {});
+      return { userId, description: note.memo_text ?? note.memo_text_v2?.inner_text ?? '',
+        hasImages: !!note.memo_picture || !!note.memo_picture_v2?.length,
+        hasRichText: elements.some(x => x.tag !== 1) };
+    } catch { throw new FeishuError('INVALID_RESPONSE', 'Contact note was unreadable.'); }
+  }
+
+  async setContactNote({ userId, description }) {
+    requireInt64Id(userId, 'user ID');
+    if (typeof description !== 'string' || Buffer.byteLength(description) > 65536) throw new FeishuError('INVALID_ARGUMENT', 'Description must be a string up to 64 KiB.');
+    const before = await this.contactNote({ userId });
+    if (before.hasImages || before.hasRichText) throw new FeishuError('UNSUPPORTED_NOTE_CONTENT', 'The note contains images or rich text; use Feishu to preserve them.');
+    if (before.description === description) return { status: 'already_set', userId, description };
+    const r = await this.gateway.call(5036, 'PatchUserMemoRequest', { targetUserId: userId, memoText: description }, { mutating: true, operation: 'contact-note-set' });
+    try { const after = await this.contactNote({ userId }); return { status: after.description === description ? 'verified' : 'submitted_unconfirmed', userId, requestId: r.requestId }; }
+    catch { return { status: 'submitted_unconfirmed', userId, requestId: r.requestId }; }
+  }
+
+  async setContactAlias({ userId, alias }) {
+    requireInt64Id(userId, 'user ID');
+    if (typeof alias !== 'string' || Buffer.byteLength(alias) > 1024) throw new FeishuError('INVALID_ARGUMENT', 'Alias must be a string up to 1024 bytes.');
+    const before = await this.contactAlias({ userId });
+    if (before.alias === alias) return { status: 'already_set', userId, alias };
+    const r = await this.gateway.call(5400, 'PutUserAliasRequest', { targetId: userId, name: alias }, { mutating: true, operation: 'contact-alias-set' });
+    try { const after = await this.contactAlias({ userId }); return { status: after.alias === alias ? 'verified' : 'submitted_unconfirmed', userId, requestId: r.requestId }; }
+    catch { return { status: 'submitted_unconfirmed', userId, requestId: r.requestId }; }
+  }
+
+  async setGroupNickname({ chatId, nickname }) {
+    requireInt64Id(chatId, 'chat ID');
+    if (typeof nickname !== 'string' || Buffer.byteLength(nickname) > 1024) throw new FeishuError('INVALID_ARGUMENT', 'Nickname must be a string up to 1024 bytes.');
+    const r = await this.gateway.call(5401, 'PutGroupNicknameRequest', { chatId, nickname }, { mutating: true, operation: 'group-nickname-set' });
+    try {
+      const me = await this.gateway.authenticate();
+      const p = await this.gateway.call(5031, 'PullContactProfileV2Request', { scene: 1, userId: me.id, chatId, useNewLayout: true }, { operation: 'group-nickname-read' });
+      const meta = this.gateway.decode('PullContactProfileV2Response', p.packet.payload).chatChatter;
+      return { status: String(meta?.chatId) === chatId && meta.groupNickname === nickname ? 'verified' : 'submitted_unconfirmed', chatId, requestId: r.requestId };
+    } catch { return { status: 'submitted_unconfirmed', chatId, requestId: r.requestId }; }
+  }
+
+  async clearChatHistory({ chatId }) {
+    requireInt64Id(chatId, 'chat ID');
+    const info = await this.chatInfo(chatId);
+    if (!Number.isInteger(info.lastMessagePosition) || info.lastMessagePosition < 0) throw new FeishuError('POSITION_UNAVAILABLE', 'The last message position is unavailable.');
+    if (!info.lastMessagePosition) return { status: 'already_empty', chatId };
+    const r = await this.gateway.call(900011, 'CleanUserChatMessageRequest', { chatId, position: info.lastMessagePosition }, { mutating: true, operation: 'chat-clear-history' });
+    return { status: 'submitted_unconfirmed', chatId, throughPosition: info.lastMessagePosition, requestId: r.requestId };
+  }
+
+  async setGroupAvatar({ chatId, path }) {
+    requireInt64Id(chatId, 'chat ID');
+    let file, dispatched = false;
+    try {
+      file = await open(path, 'r'); const stat = await file.stat();
+      if (!stat.isFile() || stat.size < 1 || stat.size > 10 * 1024 * 1024) throw new FeishuError('FILE_INVALID', 'Use an image up to 10 MiB.');
+      const b = await file.readFile();
+      let mime;
+      if (b.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex'))) mime = 'image/png';
+      else if (b.length >= 3 && b[0] === 255 && b[1] === 216 && b[2] === 255) mime = 'image/jpeg';
+      else if (b.subarray(0,4).toString() === 'RIFF' && b.subarray(8,12).toString() === 'WEBP') mime = 'image/webp';
+      else throw new FeishuError('FILE_INVALID', 'Use a PNG, JPEG or WebP image.');
+      const getAvatar = async () => { const x = await this.gateway.call(64, 'PullChatsByIdsRequest', { chatIds: [chatId] }, { operation: 'group-avatar-read' }); const chat = this.gateway.decode('PullChatsByIdsResponse', x.packet.payload).chats?.[chatId]; if (!chat || ![2, 3].includes(chat.type)) throw new FeishuError('NOT_FOUND', 'Group was not found.'); return chat.avatar?.key || null; };
+      const before = await getAvatar();
+      dispatched = true;
+      const r = await this.gateway.call(72, 'PatchGroupChatRequest', { chatId, iconData: `data:${mime};base64,${b.toString('base64')}`, updateFields: [2] }, { mutating: true, operation: 'group-avatar-set' });
+      const result = decodedPayload(this.gateway, r, 'PatchGroupChatResponse', 'group-avatar-set');
+      if (!result.chat?.id || String(result.chat.id) !== chatId) throw new FeishuError('EFFECT_UNKNOWN', 'Group avatar update was not confirmed.', { requestId: r.requestId });
+      try { const after = await getAvatar(); return { status: after && after !== before ? 'verified' : 'submitted_unconfirmed', chatId, requestId: r.requestId }; }
+      catch { return { status: 'submitted_unconfirmed', chatId, requestId: r.requestId }; }
+    } catch (e) { if (e instanceof FeishuError) throw e; throw new FeishuError(dispatched ? 'EFFECT_UNKNOWN' : 'FILE_UNAVAILABLE', dispatched ? 'The avatar update could not be confirmed; inspect before retrying.' : 'Cannot read the image or group.'); }
+    finally { await file?.close(); }
+  }
 
   async status() {
     return { status: 'ready', identity: 'user', user: await this.gateway.authenticate() };

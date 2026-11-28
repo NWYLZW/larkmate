@@ -32,6 +32,11 @@ const routes = {
   favorites: ['client', 'favorites', 'allChats'],
   'chat-open': ['client', 'openChat', 'allChats'],
   'chat-info': ['client', 'chatInfo', 'chatArg'], 'chat-state': ['controls', 'state', 'chatArg'],
+  'chat-preferences': ['controls', 'preferences', 'chatArg'], 'chat-preferences-set': ['controls', 'setPreference', 'chatObject'],
+  'chat-clear-history': ['client', 'clearChatHistory', 'chatObject'],
+  'contact-alias': ['client', 'contactAlias', 'global'], 'contact-alias-set': ['client', 'setContactAlias', 'global'],
+  'contact-note': ['client', 'contactNote', 'global'], 'contact-note-set': ['client', 'setContactNote', 'global'],
+  'group-nickname-set': ['client', 'setGroupNickname', 'chatObject'],
   history: ['client', 'historyPages', 'chatObject'], 'messages-export': ['client', 'historyPages', 'chatObject'],
   'group-link': ['groups','link','chatObject'], 'group-requests': ['groups','requests','chatObject'], 'group-request-approve': ['groups','reviewRequest','chatObject'], 'group-request-reject': ['groups','reviewRequest','chatObject'], 'group-post-users': ['groups','postUsers','chatObject'],
   'group-settings': ['groups','info','chatObject'], 'group-settings-set': ['groups','setSettings','chatObject'],
@@ -56,9 +61,10 @@ const routes = {
   'minutes-list': ['minutes', 'list', 'allMinutes'], 'minutes-export': ['minutes', 'transcript', 'minute'],
   'minutes-access-info': ['minutes', 'accessInfo', 'minute'], 'minutes-request-access': ['minutes', 'requestAccess', 'minute'],
   'send-file': ['files', 'upload', 'file'], 'send-image': ['files', 'upload', 'file'],
+  'group-avatar-set': ['files', 'upload', 'file'],
   'download-file': ['files', 'download', 'file'],
 };
-const writes = new Set(['send', 'pin', 'unpin', 'mark', 'unmark', 'mute', 'unmute', 'done', 'inbox', 'box', 'unbox', 'read', 'unread',
+const writes = new Set(['send', 'pin', 'unpin', 'mark', 'unmark', 'mute', 'unmute', 'done', 'inbox', 'box', 'unbox', 'read', 'unread', 'chat-preferences-set', 'chat-clear-history', 'contact-alias-set', 'contact-note-set', 'group-nickname-set', 'group-avatar-set',
   'label-create', 'label-rename', 'label-delete', 'label-add', 'label-remove', 'chat-open', 'group-create', 'group-invite',
   'group-update', 'group-dissolve', 'group-bot-protection', 'group-settings-set', 'group-admin-add', 'group-admin-remove', 'group-remove', 'group-leave', 'group-owner', 'group-post-set', 'group-link', 'group-request-approve', 'group-request-reject', 'message-edit', 'message-forward', 'message-recall', 'favorite-add',
   'favorite-remove', 'reaction-add', 'reaction-remove', 'minutes-request-access', 'send-file', 'send-image', 'sidebar-set', 'task-create', 'task-update', 'task-complete', 'task-reopen', 'task-delete', 'event-create', 'event-update', 'event-delete', 'event-share', 'event-reply', 'calendar-create', 'calendar-update', 'calendar-delete', 'calendar-subscribe', 'calendar-unsubscribe']);
@@ -154,7 +160,9 @@ export function authorize(policy, request) {
       : method === 'historyPages' ? ['chatId', 'limit', 'start', 'pages', 'query', 'sender', 'after', 'before']
         : method === 'members' ? ['chatId', 'cursor', 'offset', 'limit']
           : method === 'updateGroup' ? ['chatId', 'name', 'description']
-            : method === 'info' || method === 'admins' || method === 'postUsers' ? ['chatId']
+            : method === 'setPreference' ? ['chatId', 'muteAtAll', 'autoTranslate']
+            : method === 'setGroupNickname' ? ['chatId', 'nickname']
+            : method === 'info' || method === 'admins' || method === 'postUsers' || method === 'clearChatHistory' ? ['chatId']
               : method === 'link' ? ['chatId','days','unlimited']
                 : method === 'requests' ? ['chatId','cursor']
                   : method === 'reviewRequest' ? ['chatId','userId','approve']
@@ -281,7 +289,7 @@ export async function brokerCall(socketPath, request, tokenFile) {
 export function brokerProxy(socketPath, service, getCommand, tokenFile) {
   return new Proxy({}, { get(_target, method) {
     if (method === 'then' || typeof method !== 'string') return undefined;
-    if (service === 'client' && ['sendFile', 'sendImage'].includes(method)) return options => brokerUpload(socketPath, tokenFile, getCommand(), options);
+    if (service === 'client' && ['sendFile', 'sendImage', 'setGroupAvatar'].includes(method)) return options => brokerUpload(socketPath, tokenFile, getCommand(), options);
     if (service === 'client' && method === 'downloadFile') return options => brokerDownload(socketPath, tokenFile, options);
     return (...args) => brokerCall(socketPath, { command: getCommand(), service, method, args }, tokenFile);
   } });

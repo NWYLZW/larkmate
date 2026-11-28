@@ -24,12 +24,12 @@ export async function handleFileRequest({ req, res, policy, getServices, authori
     let meta;
     try { meta = JSON.parse(Buffer.from(req.headers['x-larkmate-file'], 'base64url').toString('utf8')); } catch { bad(); }
     command = meta?.command;
-    const upload = command === 'send-file' || command === 'send-image';
+    const upload = ['send-file', 'send-image', 'group-avatar-set'].includes(command);
     if (!only(meta, upload ? ['command', 'chatId', 'name', 'size'] : ['command', 'chatId', 'messageId', 'key', 'position']) || (!upload && command !== 'download-file')) bad();
     authorize(policy, { command, service: 'files', method: upload ? 'upload' : 'download', args: [{ chatId: meta.chatId }] });
     requireInt64Id(meta.chatId, 'chat ID');
     if (upload) {
-      if (!safeName(meta.name) || !Number.isSafeInteger(meta.size) || meta.size < 1 || meta.size > policy.maxFileBytes || (command === 'send-image' && meta.size > 10 * 1024 * 1024)) bad();
+      if (!safeName(meta.name) || !Number.isSafeInteger(meta.size) || meta.size < 1 || meta.size > policy.maxFileBytes || (['send-image', 'group-avatar-set'].includes(command) && meta.size > 10 * 1024 * 1024)) bad();
       dir = await mkdtemp(join(tmpdir(), 'larkmate-transfer-'));
       const path = join(dir, meta.name);
       const file = await open(path, 'wx', 0o600);
@@ -45,7 +45,7 @@ export async function handleFileRequest({ req, res, policy, getServices, authori
       const { client } = await getServices();
       if (res.destroyed) return;
       dispatched = true;
-      const data = await client[command === 'send-file' ? 'sendFile' : 'sendImage']({ chatId: meta.chatId, path });
+      const data = await client[command === 'send-file' ? 'sendFile' : command === 'send-image' ? 'sendImage' : 'setGroupAvatar']({ chatId: meta.chatId, path });
       answer(200, { ok: true, data });
     } else {
       requireInt64Id(meta.messageId, 'message ID');

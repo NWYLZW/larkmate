@@ -79,7 +79,7 @@ export function osDelegateProxy(owner, launcher, service, getCommand) {
     if (method === 'then' || typeof method !== 'string') return undefined;
     return (...args) => {
       const command = getCommand();
-      if (service === 'client' && ['sendFile', 'sendImage'].includes(method)) {
+      if (service === 'client' && ['sendFile', 'sendImage', 'setGroupAvatar'].includes(method)) {
         const { chatId, path } = args[0];
         return callOsDelegate({ owner, launcher, request: { command, service: 'files', method: 'upload', args: [{ chatId }] }, inputPath: path });
       }

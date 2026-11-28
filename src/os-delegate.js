@@ -77,14 +77,14 @@ export async function checkDelegation({ profile, uid, request, file }) {
 }
 
 export async function invokeDelegated({ profile, uid, request, getServices, filePath }) {
-  const fileOp = ['send-file', 'send-image', 'download-file'].includes(request?.command);
+  const fileOp = ['send-file', 'send-image', 'group-avatar-set', 'download-file'].includes(request?.command);
   if (fileOp && request.service !== 'files') noAccess();
   if (!fileOp && request.service === 'files') noAccess();
   let file;
-  if (request.command === 'send-file' || request.command === 'send-image') {
+  if (['send-file', 'send-image', 'group-avatar-set'].includes(request.command)) {
     if (!filePath || !nameOk(request.fileName)) fail('INVALID_REQUEST', 'Invalid file transfer.');
     const info = await stat(filePath);
-    if (!info.isFile() || info.size < 1 || info.size > profile.policy.maxFileBytes || (request.command === 'send-image' && info.size > 10 * 1024 * 1024)) fail('FILE_TOO_LARGE', 'The file exceeds the configured limit.');
+    if (!info.isFile() || info.size < 1 || info.size > profile.policy.maxFileBytes || (['send-image', 'group-avatar-set'].includes(request.command) && info.size > 10 * 1024 * 1024)) fail('FILE_TOO_LARGE', 'The file exceeds the configured limit.');
     const hash = createHash('sha256'); for await (const chunk of createReadStream(filePath)) hash.update(chunk);
     file = { name: request.fileName, size: info.size, sha256: hash.digest('hex') };
   }
@@ -106,7 +106,7 @@ export async function invokeDelegated({ profile, uid, request, getServices, file
   }
   const client = services.client, o = args[0];
   if (method === 'upload') {
-    try { return { data: await client[rpc.command === 'send-file' ? 'sendFile' : 'sendImage']({ chatId: o.chatId, path: filePath }) }; }
+    try { return { data: await client[rpc.command === 'send-file' ? 'sendFile' : rpc.command === 'send-image' ? 'sendImage' : 'setGroupAvatar']({ chatId: o.chatId, path: filePath }) }; }
     catch (error) { if (!(error instanceof FeishuError)) fail('EFFECT_UNKNOWN', 'The delegated write could not be confirmed; inspect before retrying.'); throw error; }
   }
   return { download: true, client, options: o };
@@ -126,7 +126,7 @@ export async function serveOne({ input, output, uid, profile, getServices }) {
         try { request = JSON.parse(header.subarray(0, end).toString('utf8')); } catch { fail('INVALID_REQUEST', 'Invalid request.'); }
         data = header.subarray(end + 1); header = null;
         if (!only(request, ['command', 'service', 'method', 'args', 'fileName', 'size'])) fail('INVALID_REQUEST', 'Invalid request.');
-        const upload = request.command === 'send-file' || request.command === 'send-image';
+        const upload = ['send-file', 'send-image', 'group-avatar-set'].includes(request.command);
         if (upload) {
           if (!nameOk(request.fileName) || !Number.isSafeInteger(request.size) || request.size < 1 || request.size > profile.policy.maxFileBytes || request.size > MAX_FILE) fail('FILE_TOO_LARGE', 'The file exceeds the configured limit.');
           const { size, fileName, ...rpc } = request;

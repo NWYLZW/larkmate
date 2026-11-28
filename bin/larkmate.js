@@ -17,7 +17,7 @@ import { Calendar } from '../src/calendar.js';
 
 const defaultTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.12');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.13');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.option('--broker <path>', 'use a restricted local broker socket (or LARKMATE_BROKER)');
 program.option('--broker-token-file <path>', 'read the agent token (or LARKMATE_BROKER_TOKEN_FILE)');
@@ -169,8 +169,16 @@ program.command('calendar-search').description('Search people, shared calendars 
   .action(async o => output(await (await calendar()).searchCalendars({query:o.query,offset:Number(o.offset),count:Number(o.limit)})));
 program.command('calendar-events').description('Query calendar events overlapping a time range.')
   .requiredOption('--start <time>','ISO date-time with timezone or Unix seconds').requiredOption('--end <time>','exclusive end')
-  .option('--calendar <id>','repeatable calendar ID',collect,[]).option('--all-calendars','include all listed calendars').option('--pages <number>','maximum pages per calendar','20')
-  .action(async o => output(await (await calendar()).events({start:o.start,end:o.end,calendarIds:o.calendar,allCalendars:!!o.allCalendars,maxPages:Number(o.pages)})));
+  .option('--calendar <id>','repeatable calendar ID',collect,[]).option('--user <id>','repeatable user ID',collect,[]).option('--all-calendars','include all listed calendars').option('--pages <number>','maximum pages per calendar','20')
+  .action(async o => output(await (await calendar()).events({start:o.start,end:o.end,calendarIds:o.calendar,userIds:o.user,allCalendars:!!o.allCalendars,maxPages:Number(o.pages)})));
+program.command('calendar-busy').description('Check whether people are busy in a time range.')
+  .requiredOption('--start <time>').requiredOption('--end <time>').option('--user <id>','repeatable user ID',collect,[]).option('--no-self','exclude your own calendar')
+  .action(async o=>output(await (await calendar()).busy({start:o.start,end:o.end,users:o.user,includeSelf:o.self})));
+program.command('calendar-suggest').description('Find mutually available meeting times using free/busy data.')
+  .requiredOption('--start <time>').requiredOption('--end <time>').option('--user <id>','repeatable user ID',collect,[]).option('--no-self','exclude your own calendar')
+  .option('--duration <minutes>','meeting duration','30').option('--step <minutes>','start-time interval','30').option('--work-start <HH:mm>','working day start','09:00').option('--work-end <HH:mm>','working day end','18:00')
+  .option('--timezone <zone>','IANA timezone',defaultTimezone).option('--weekends','include Saturdays and Sundays').option('--limit <number>','maximum suggestions','10').option('--max-requests <number>','maximum free/busy queries','200')
+  .action(async o=>output(await (await calendar()).suggest({start:o.start,end:o.end,users:o.user,includeSelf:o.self,duration:Number(o.duration),step:Number(o.step),workStart:o.workStart,workEnd:o.workEnd,timezone:o.timezone,weekends:!!o.weekends,limit:Number(o.limit),maxRequests:Number(o.maxRequests)})));
 program.command('calendar-rooms').description('Search available meeting rooms.')
   .requiredOption('--start <time>').requiredOption('--end <time>').option('--query <text>','room name','').option('--limit <number>','page size','50').option('--cursor <number>','next page','0').option('--timezone <zone>','IANA timezone',defaultTimezone).option('--repeat <rrule>')
   .action(async o => output(await (await calendar()).rooms({start:o.start,end:o.end,query:o.query,count:Number(o.limit),cursor:Number(o.cursor),timezone:o.timezone,rrule:o.repeat})));

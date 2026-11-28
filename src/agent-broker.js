@@ -12,6 +12,7 @@ import { handleFileRequest, brokerUpload, brokerDownload } from './agent-files.j
 const routes = {
   status: ['client', 'status', 'global'], search: ['client', 'search', 'global'],
   'calendars': ['calendar','calendars','global'], 'calendar-search': ['calendar','searchCalendars','global'],
+  'calendar-busy': ['calendar','busy','global'], 'calendar-suggest': ['calendar','suggest','global'],
   'calendar-events': ['calendar','events','global'], 'event-get': ['calendar','event','global'], 'calendar-rooms': ['calendar','rooms','global'],
   'event-create': ['calendar','createEvent','global'], 'event-update': ['calendar','updateEvent','global'], 'event-delete': ['calendar','deleteEvent','global'],
   'event-share': ['calendar','share','allChats'], 'event-reply': ['calendar','reply','global'], 'calendar-create': ['calendar','createCalendar','global'], 'calendar-update': ['calendar','updateCalendar','global'],

@@ -65,6 +65,7 @@ npx --registry=https://registry.npmjs.org/ skills add NWYLZW/larkmate --skill la
 - 日历
   - [x] 查询、搜索、创建和管理日历，订阅或取消订阅
   - [x] 按时间范围查询日程和重复日程，查看日程详情
+  - [x] 查询他人忙闲，寻找共同空闲时间
   - [x] 创建、修改和删除日程，管理参与人、会议室及提醒
   - [x] 分享日程，接受、拒绝或暂定日程邀请
   - [ ] 导入谷歌日历

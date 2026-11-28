@@ -22,7 +22,7 @@ test('timezone and invalid recurrence do not silently invent results', () => {
   assert.equal(r.items.length,0);assert.equal(r.warnings[0].code,'RECURRENCE_UNEXPANDED');
 });
 test('events follow page tokens and report incompleteness', async () => {
-  let calls=0;const g={async call(cmd,type,body){if(cmd===1001001)return {packet:{payload:{kind:'calendars'}}};calls++;return {packet:{payload:{kind:'events',page:calls}}}},decode(type,body){if(body.kind==='calendars')return {calendars:[{id:'c',isPrimary:true}],hasMore:false};return {results:{c:{calendarEvents:[{id:String(body.page),calendarId:'c',key:String(body.page),startTime:'100',endTime:'200',attendees:[]}],nextPageToken:body.page===1?'next':''}}}}};
+  let calls=0;const g={async call(cmd,type,body){if(cmd===1001001)return {packet:{payload:{kind:'calendars'}}};if(cmd===1001008)return {packet:{payload:{kind:'metadata'}}};calls++;return {packet:{payload:{kind:'events',page:calls}}}},decode(type,body){if(body.kind==='calendars')return {calendars:[{id:'c',isPrimary:true}],hasMore:false};if(body.kind==='metadata')return {calendars:{c:{selfAccessRole:4}}};return {results:{c:{calendarEvents:[{id:String(body.page),calendarId:'c',key:String(body.page),startTime:'100',endTime:'200',attendees:[]}],nextPageToken:body.page===1?'next':''}}}}};
   const c=new Calendar(g),partial=await c.events({start:'50',end:'300',maxPages:1});assert.equal(partial.items.length,1);assert.equal(partial.complete,false);
   calls=0;const complete=await c.events({start:'50',end:'300',maxPages:2});assert.equal(complete.items.length,2);assert.equal(complete.complete,true);
 });
@@ -35,4 +35,18 @@ test('event update cannot secretly cancel an event or reply to an invitation', a
   const c=new Calendar(gateway);c.event=async()=>({event:{}});
   await assert.rejects(c.updateEvent({eventId:'1',patch:{status:3}}),{code:'INVALID_ARGUMENT'});
   await assert.rejects(c.updateEvent({eventId:'1',patch:{selfAttendeeStatus:4}}),{code:'INVALID_ARGUMENT'});
+});
+test('availability refuses users whose free-busy permission is missing', async () => {
+  const c=new Calendar({async authenticate(){return {id:'1'}}});let resolved=false;
+  c.call=async()=>({freeBusyAccessibleUserMap:{'1':true,'2':false}});c.attendees=async()=>{resolved=true;return {items:[]}};
+  await assert.rejects(c.resolveAvailability(['2']),{code:'FREEBUSY_UNAVAILABLE'});assert.equal(resolved,false);
+});
+test('meeting suggestions return only windows verified free for everyone', async () => {
+  const c=new Calendar({});c.resolveAvailability=async()=>[{userId:'1',calendarId:'a'},{userId:'2',calendarId:'b'}];
+  const busyStart=timestamp('2026-11-30T12:00:00+08:00'),busyEnd=timestamp('2026-11-30T13:00:00+08:00');
+  c.checkBusy=async(people,start,end)=>people.map((p,i)=>({...p,busy:i===1&&start<busyEnd&&end>busyStart}));
+  const o={users:['2'],start:'2026-11-30T09:00:00+08:00',end:'2026-11-30T18:00:00+08:00',duration:30,step:30,timezone:'Asia/Shanghai',limit:30};
+  const r=await c.suggest(o);assert.equal(r.complete,true);assert.equal(r.slots.length,16);
+  for(const slot of r.slots)assert.ok(Number(slot.end)<=busyStart||Number(slot.start)>=busyEnd);
+  const cut=await c.suggest({...o,maxRequests:1});assert.equal(cut.complete,false);assert.equal(cut.slots.length,0);
 });

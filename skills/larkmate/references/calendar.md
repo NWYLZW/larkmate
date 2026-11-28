@@ -7,9 +7,15 @@ larkmate calendars
 larkmate calendar-search --query '名称'
 larkmate calendar-events --start '2026-11-30T00:00:00+08:00' --end '2026-12-01T00:00:00+08:00'
 larkmate calendar-events --start '2026-11-30T00:00:00+08:00' --end '2026-12-07T00:00:00+08:00' --all-calendars
+larkmate search --query '对方姓名'
+larkmate calendar-events --user "$USER_ID" --start '2026-11-30T00:00:00+08:00' --end '2026-12-01T00:00:00+08:00'
+larkmate calendar-busy --user "$USER_ID" --start '2026-11-30T10:00:00+08:00' --end '2026-11-30T10:30:00+08:00'
+larkmate calendar-suggest --user "$USER_ID" --start '2026-11-30T00:00:00+08:00' --end '2026-12-07T00:00:00+08:00' --duration 30
 larkmate event-get --id "$EVENT_ID"
 larkmate calendar-rooms --start '2026-11-30T10:00:00+08:00' --end '2026-11-30T11:00:00+08:00' --query '会议室'
 ```
+
+先通过姓名搜索确认用户，再使用忙闲命令；默认包含自己，可重复传入多个用户。忙闲仅在获得权限时可用，无权限或无法解析的用户不会当作空闲。查询他人日程时检查 `access` 的 `detailAccess`：只有忙闲权限时，返回时间可能没有主题和详情。建议默认只考虑工作日 09:00–18:00，可配置时区、工作时间和时长；检查 `complete` 与 `limitReached`。选定时间后，再按用户的实际要求创建日程并邀请参与人。
 
 时间使用带时区的 ISO 时间或 Unix 秒。重复日程结果中的 `startTime`、`endTime` 和 `originalTime` 对应该次发生，`event` 是系列信息。修改或删除重复日程时根据用户意图传 `--span`（1 本次、2 本次及以后、3 整个系列）和 `--instance-start`；普通日程默认 span 0。日历返回的例外或规则若不完整，展开结果可能与网页不同，重要安排应核对详情。
 

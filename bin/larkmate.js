@@ -20,7 +20,7 @@ import { createRuleOutput, loadListenRules, startListenService } from '../src/li
 
 const defaultTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.16');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.17');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.option('--broker <path>', 'use a restricted local broker socket (or LARKMATE_BROKER)');
 program.option('--broker-token-file <path>', 'read the agent token (or LARKMATE_BROKER_TOKEN_FILE)');
@@ -139,19 +139,21 @@ program.command('status').description('Check the current user login.')
 program.command('search').description('Search users, bots and groups.')
   .requiredOption('--query <text>', 'search text')
   .action(async options => output(await (await client()).search(options.query)));
-program.command('listen').description('Stream new messages from selected chats as JSON lines.')
-  .requiredOption('--chat <id>', 'numeric chat ID; repeatable', collect, [])
+program.command('listen').description('Stream new messages as JSON lines; defaults to all chats.')
+  .option('--chat <id>', 'restrict to a numeric chat ID; repeatable', collect, []).option('--all', 'listen to all chats')
   .action(async o => {
     if (configuredBroker() || configuredBrokerToken() || configuredDelegate()) throw new FeishuError('UNSUPPORTED_MODE', 'Message listening is not available through broker or OS delegation.');
+    if (o.all && o.chat.length) throw new FeishuError('INVALID_ARGUMENT', 'Use --all or --chat, not both.');
     const controller = new AbortController(), stop = () => controller.abort();
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
     try { await listen({ gateway: new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) }), chatIds: o.chat, signal: controller.signal }); }
     finally { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
   });
-program.command('listen-service').description('Serve selected chat messages on a private Unix socket.')
-  .requiredOption('--chat <id>', 'numeric chat ID; repeatable', collect, []).requiredOption('--socket <path>', 'absolute Unix socket path')
+program.command('listen-service').description('Serve messages on a private Unix socket; defaults to all chats.')
+  .option('--chat <id>', 'restrict to a numeric chat ID; repeatable', collect, []).option('--all', 'listen to all chats').requiredOption('--socket <path>', 'absolute Unix socket path')
   .action(async o => {
     if (configuredBroker() || configuredBrokerToken() || configuredDelegate()) throw new FeishuError('UNSUPPORTED_MODE', 'Message listening is not available through broker or OS delegation.');
+    if (o.all && o.chat.length) throw new FeishuError('INVALID_ARGUMENT', 'Use --all or --chat, not both.');
     const service = await startListenService(o.socket), controller = new AbortController(), stop = () => controller.abort();
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
     try { process.stderr.write(`LarkMate: event socket ${service.path}\n`); await listen({ gateway:new Gateway({cookie:await loadCookie({file:program.opts().credentialsFile})}),chatIds:o.chat,output:service.output,signal:controller.signal }); }

@@ -14,7 +14,7 @@ description: 使用 LarkMate 以当前飞书网页版用户身份管理会话、
 根据任务读取所需参考：
 
 - 查找会话、搜索与导出消息、获取链接、下载资源，以及管理会话状态和标签： [会话与消息](references/chats.md)。
-- 监听指定会话、本地事件服务及脚本触发规则： [消息监听](references/listen.md)。
+- 全局或按会话监听、本地事件服务及脚本触发规则： [消息监听](references/listen.md)。
 - 发送与管理消息、文件、图片、表情和收藏，管理群组及成员： [发送与群组](references/writes.md)。
 - 查询和管理飞书任务、任务视图及成员： [飞书任务](references/tasks.md)。
 - 查询和管理日历、日程及邀请： [日历与日程](references/calendar.md)。

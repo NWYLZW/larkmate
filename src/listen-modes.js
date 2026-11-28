@@ -22,11 +22,12 @@ function script(value, label) {
 }
 export function parseListenRules(raw) {
   if (!only(raw,['version','rules']) || raw.version!==1 || !Array.isArray(raw.rules) || !raw.rules.length || raw.rules.length>100) invalid('Use version 1 and 1 to 100 rules.');
-  const names=new Set(), chats=new Set();
+  const names=new Set(), chats=new Set(); let allChats=false;
   const rules=raw.rules.map(r=>{
     if (!only(r,['name','chatIds','senderIds','types','contains','excludeContains','excludeSelf','filter','run']) || typeof r.name!=='string' || !r.name.trim() || r.name.length>100 || names.has(r.name)) invalid('Invalid or duplicate rule name.');
     names.add(r.name);
-    const chatIds=stringArray(r.chatIds,'chat IDs'); if (!chatIds.length) invalid('Every rule needs at least one chat ID.');
+    const chatIds=r.chatIds===undefined ? [] : stringArray(r.chatIds,'chat IDs',Infinity);
+    if (!chatIds.length) allChats=true;
     for(const id of chatIds){requireInt64Id(id,'chat ID');chats.add(id);}
     const senderIds=r.senderIds===undefined?null:stringArray(r.senderIds,'sender IDs'); if(senderIds)for(const id of senderIds)requireInt64Id(id,'sender ID');
     const types=r.types===undefined?null:r.types;
@@ -35,8 +36,7 @@ export function parseListenRules(raw) {
     if(r.excludeSelf!==undefined&&typeof r.excludeSelf!=='boolean')invalid('Invalid excludeSelf.');
     return {name:r.name,chatIds,senderIds,types,contains:r.contains,excludeContains:r.excludeContains,excludeSelf:r.excludeSelf===true,filter:r.filter===undefined?null:script(r.filter,'filter'),run:script(r.run,'run')};
   });
-  if(chats.size>100)invalid('At most 100 distinct chats are allowed.');
-  return {rules,chatIds:[...chats]};
+  return {rules,chatIds:allChats?[]:[...chats],allChats};
 }
 export async function loadListenRules(path) {
   let f;
@@ -47,7 +47,7 @@ export async function loadListenRules(path) {
   finally { await f?.close(); }
 }
 function matches(rule,event,selfId) {
-  return event.kind==='message'&&rule.chatIds.includes(event.chatId)&&(!rule.senderIds||rule.senderIds.includes(event.senderId))&&(!rule.types||rule.types.includes(event.type))
+  return event.kind==='message'&&(!rule.chatIds.length||rule.chatIds.includes(event.chatId))&&(!rule.senderIds||rule.senderIds.includes(event.senderId))&&(!rule.types||rule.types.includes(event.type))
     &&(!rule.excludeSelf||(selfId&&event.senderId!==selfId))&&(rule.contains===undefined||(event.text||'').includes(rule.contains))&&(rule.excludeContains===undefined||!(event.text||'').includes(rule.excludeContains));
 }
 function runScript(config,event) {
@@ -73,7 +73,7 @@ export function createRuleOutput({rules,selfId,log=process.stderr}) {
   })().then(()=>callback(),callback)}});
 }
 
-// Exposes only the preselected chat stream, protected by the socket and parent directory permissions.
+// Exposes the configured event stream, protected by the socket and parent directory permissions.
 export async function startListenService(socketPath) {
   if(typeof socketPath!=='string'||!isAbsolute(socketPath)||socketPath.endsWith('/'))throw new FeishuError('INVALID_ARGUMENT','Use an absolute socket path.');
   let parent;try{parent=await realpath(dirname(socketPath));}catch{throw new FeishuError('LISTEN_SOCKET_INVALID','The socket directory must exist.');}

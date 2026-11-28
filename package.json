@@ -1,6 +1,6 @@
 {
   "name": "larkmate",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "A small, user-identity Feishu CLI with a modular gateway client",
   "type": "module",
   "license": "UNLICENSED",

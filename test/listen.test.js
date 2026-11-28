@@ -88,3 +88,36 @@ test('listener resolves compacted message pushes before delivering them', async 
   try{await listen({gateway:g,chatIds:['123'],output,log:logs,signal:controller.signal,WebSocketImpl:MockSocket})}finally{LarkMateClient.prototype.chatInfo=originalInfo;LarkMateClient.prototype.history=originalHistory}
   assert.equal(JSON.parse(result.trim()).text,'from packet');
 });
+
+test('global listener accepts multiple chats and reports unknown coverage while backfilling known chats', async () => {
+  const g=await gateway(), controller=new AbortController(), output=new PassThrough(), logs=new PassThrough();
+  const originalInfo=LarkMateClient.prototype.chatInfo,originalHistory=LarkMateClient.prototype.history;
+  let socket,connections=0,result='';
+  LarkMateClient.prototype.chatInfo=async()=>({lastMessagePosition:3});
+  LarkMateClient.prototype.history=async({chatId,start})=>({items:[{id:chatId==='123'?'31':'32',senderId:'7',type:4,text:'recovered',position:start}],omittedPositions:0});
+  class MockSocket extends EventTarget{constructor(){super();socket=this;this.readyState=1;queueMicrotask(()=>this.dispatchEvent(new Event('open')))}send(){}close(){if(this.readyState===3)return;this.readyState=3;queueMicrotask(()=>this.dispatchEvent(new Event('close')))}deliver(bytes){let e=new Event('message');e.data=bytes;this.dispatchEvent(e)}}
+  logs.on('data',()=>{if(++connections===1){socket.deliver(push(g,'123','11','first'));socket.deliver(push(g,'456','12','second'));setTimeout(()=>socket.close(),10)}});
+  output.on('data',chunk=>{result+=chunk;const matches=result.match(/"backfill":true/g)||[];if(matches.length===2)controller.abort()});
+  try{await listen({gateway:g,output,log:logs,signal:controller.signal,WebSocketImpl:MockSocket})}
+  finally{LarkMateClient.prototype.chatInfo=originalInfo;LarkMateClient.prototype.history=originalHistory}
+  const events=result.trim().split('\n').map(JSON.parse);
+  assert.deepEqual(events.filter(x=>x.kind==='message'&&!x.backfill).map(x=>x.chatId),['123','456']);
+  assert.equal(events.some(x=>x.reason==='global_coverage_unknown'),true);
+  assert.deepEqual(events.filter(x=>x.backfill).map(x=>x.chatId),['123','456']);
+});
+
+test('global backfill continues when one previously seen chat is unavailable', async () => {
+  const g=await gateway(),controller=new AbortController(),output=new PassThrough(),logs=new PassThrough();
+  const originalInfo=LarkMateClient.prototype.chatInfo,originalHistory=LarkMateClient.prototype.history;
+  let socket,connections=0,result='';
+  LarkMateClient.prototype.chatInfo=async()=>({lastMessagePosition:3});
+  LarkMateClient.prototype.history=async({chatId,start})=>{if(chatId==='123')throw new Error('unavailable');return {items:[{id:'42',senderId:'7',type:4,text:'other recovered',position:start}],omittedPositions:0}};
+  class MockSocket extends EventTarget{constructor(){super();socket=this;this.readyState=1;queueMicrotask(()=>this.dispatchEvent(new Event('open')))}send(){}close(){if(this.readyState===3)return;this.readyState=3;queueMicrotask(()=>this.dispatchEvent(new Event('close')))}deliver(bytes){let e=new Event('message');e.data=bytes;this.dispatchEvent(e)}}
+  logs.on('data',()=>{if(++connections===1){socket.deliver(push(g,'123','11','first'));socket.deliver(push(g,'456','12','second'));setTimeout(()=>socket.close(),10)}});
+  output.on('data',chunk=>{result+=chunk;if(result.includes('other recovered'))controller.abort()});
+  try{await listen({gateway:g,output,log:logs,signal:controller.signal,WebSocketImpl:MockSocket})}
+  finally{LarkMateClient.prototype.chatInfo=originalInfo;LarkMateClient.prototype.history=originalHistory}
+  const events=result.trim().split('\n').map(JSON.parse);
+  assert.equal(events.some(x=>x.chatId==='123'&&x.reason==='backfill_failed'),true);
+  assert.equal(events.some(x=>x.chatId==='456'&&x.text==='other recovered'),true);
+});

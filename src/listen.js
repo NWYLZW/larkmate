@@ -87,24 +87,30 @@ function formatMessage(gateway, m) {
     type:m.type, text, textIncomplete, createTime:asString(m.createTime), rootId:asString(m.rootId), parentId:asString(m.parentId) };
 }
 
-export async function listen({ gateway, chatIds, output = process.stdout, log = process.stderr, signal, WebSocketImpl = WebSocket }) {
-  if (!Array.isArray(chatIds) || !chatIds.length || chatIds.length > 100) throw new FeishuError('INVALID_ARGUMENT', 'Specify 1 to 100 chat IDs.');
+export async function listen({ gateway, chatIds = [], output = process.stdout, log = process.stderr, signal, WebSocketImpl = WebSocket }) {
+  if (!Array.isArray(chatIds)) throw new FeishuError('INVALID_ARGUMENT', 'chat IDs must be a list.');
   const selected = new Set(chatIds.map(id => requireInt64Id(id, 'chat ID')));
+  const global = selected.size === 0;
   const client = new LarkMateClient(gateway), seen = new Set(), seenOrder = [], positions = new Map();
   const emit = async value => { if (!output.write(`${JSON.stringify(value)}\n`)) await once(output, 'drain'); };
   const remember = id => { if (!id || seen.has(id)) return false; seen.add(id); seenOrder.push(id); if (seenOrder.length > 10000) seen.delete(seenOrder.shift()); return true; };
-  const writeMessage = async message => { if (!selected.has(message.chatId) || !remember(message.id)) return;
-    if (Number.isInteger(message.position)) positions.set(message.chatId, Math.max(positions.get(message.chatId) ?? 0, message.position)); await emit(message); };
+  const writeMessage = async message => { if ((!global && !selected.has(message.chatId)) || !remember(message.id)) return;
+    if (typeof message.chatId === 'string' && /^[1-9]\d{0,18}$/.test(message.chatId) && Number.isInteger(message.position)) positions.set(message.chatId, Math.max(positions.get(message.chatId) ?? 0, message.position)); await emit(message); };
   for (const chatId of selected) { const info = await client.chatInfo(chatId); if (!Number.isInteger(info.lastMessagePosition)) throw new FeishuError('POSITION_UNAVAILABLE', 'Cannot read the initial message position.'); positions.set(chatId, info.lastMessagePosition); }
-  const backfill = async () => { for (const chatId of selected) {
-    const latest = (await client.chatInfo(chatId)).lastMessagePosition, from = positions.get(chatId) + 1;
+  const backfill = async () => { for (const chatId of (global ? [...positions.keys()] : selected)) {
+    let latest;
+    try { latest = (await client.chatInfo(chatId)).lastMessagePosition; }
+    catch (error) { await emit({kind:'gap',chatId,reason:'position_unavailable',code:error.code || 'READ_FAILED'}); continue; }
+    const from = positions.get(chatId) + 1;
     if (!Number.isInteger(latest)) { await emit({ kind:'gap', chatId, reason:'position_unavailable' }); continue; }
     if (latest - from >= 10000) { await emit({ kind:'gap', chatId, reason:'backfill_limit', fromPosition:from, throughPosition:latest }); positions.set(chatId,latest); continue; }
-    for (let start=from; start<=latest; start+=100) {
-      const page = await client.history({chatId,start,limit:Math.min(100,latest-start+1)});
-      for (const m of page.items) await writeMessage({kind:'message',chatId,...m,backfill:true});
-      if (page.omittedPositions) await emit({kind:'gap',chatId,reason:'positions_unavailable',start,count:page.omittedPositions});
-    }
+    try {
+      for (let start=from; start<=latest; start+=100) {
+        const page = await client.history({chatId,start,limit:Math.min(100,latest-start+1)});
+        for (const m of page.items) await writeMessage({kind:'message',chatId,...m,backfill:true});
+        if (page.omittedPositions) await emit({kind:'gap',chatId,reason:'positions_unavailable',start,count:page.omittedPositions});
+      }
+    } catch (error) { await emit({kind:'gap',chatId,reason:'backfill_failed',code:error.code || 'READ_FAILED'}); continue; }
     positions.set(chatId, Math.max(positions.get(chatId), latest));
   } };
   let attempt = 0;
@@ -174,6 +180,7 @@ export async function listen({ gateway, chatIds, output = process.stdout, log = 
     } finally { clearInterval(heartbeat); if (socket && socket.readyState < 2) socket.close(); }
     if (signal?.aborted) break;
     if (connected && !reported) await emit({kind:'gap',reason:'connection_interrupted'});
+    if (global && connected) await emit({kind:'gap',reason:'global_coverage_unknown'});
     try { await delay(Math.min(30000,1000 * 2**Math.min(attempt++,5)), undefined, { signal }); } catch (error) { if (!signal?.aborted) throw error; }
   }
 }

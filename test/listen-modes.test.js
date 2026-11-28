@@ -15,7 +15,21 @@ test('rules invoke fixed filter and action with the matching event on stdin', as
  const config=parseListenRules({version:1,rules:[{name:'r',chatIds:['123'],senderIds:['7'],contains:'go',filter:{path:process.execPath,args:[filter]},run:{path:process.execPath,args:[action,result]}}]});
  const sink=createRuleOutput(config);sink.write(JSON.stringify({kind:'message',chatId:'999',senderId:'7',text:'go'})+'\n');sink.write(JSON.stringify({kind:'message',chatId:'123',senderId:'7',text:'go safely'})+'\n');sink.end();await once(sink,'finish');
  assert.equal(JSON.parse(await readFile(result,'utf8')).text,'go safely');
- assert.throws(()=>parseListenRules({version:1,rules:[{name:'x',chatIds:[],run:{path:'/bin/true'}}]}),{code:'LISTEN_CONFIG_INVALID'});
+ const global=parseListenRules({version:1,rules:[{name:'x',run:{path:'/bin/true'}}]});
+ assert.equal(global.allChats,true);assert.deepEqual(global.chatIds,[]);
+ const empty=parseListenRules({version:1,rules:[{name:'x',chatIds:[],run:{path:'/bin/true'}}]});
+ assert.equal(empty.allChats,true);assert.deepEqual(empty.chatIds,[]);
+});
+
+test('global and chat-specific rules keep their own matching scope', async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'larkmate-global-rules-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ const action=join(dir,'action.cjs'),out=join(dir,'output');
+ await writeFile(action,"let s='';process.stdin.on('data',x=>s+=x);process.stdin.on('end',()=>require('fs').appendFileSync(process.argv[2],s));");
+ const config=parseListenRules({version:1,rules:[{name:'global',contains:'run',run:{path:process.execPath,args:[action,out]}},{name:'restricted',chatIds:['123'],contains:'run',run:{path:process.execPath,args:[action,out]}}]});
+ assert.equal(config.allChats,true);assert.deepEqual(config.chatIds,[]);
+ const sink=createRuleOutput(config);for(const id of ['123','456'])sink.write(JSON.stringify({kind:'message',chatId:id,senderId:'7',text:'run'})+'\n');sink.end();await once(sink,'finish');
+ const events=(await readFile(out,'utf8')).trim().split('\n').map(JSON.parse);
+ assert.deepEqual(events.map(e=>e.chatId),['123','123','456']);
 });
 
 test('local event service uses a private socket and cleans it up', async t=>{

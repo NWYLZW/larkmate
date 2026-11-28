@@ -1,22 +1,22 @@
 # 监听飞书消息
 
-LarkMate 使用当前用户的飞书 Cookie 监听指定会话。先通过 `search` 或 `chats` 确认会话 ID，监听不会主动标记消息为已读。监听进程需要持续运行；退出后不会在后台继续收取消息。
+LarkMate 使用当前用户的飞书 Cookie 监听消息，默认覆盖全部会话，也可通过 `--chat` 限定监听范围，并用 `search` 或 `chats` 查询会话 ID。监听不会主动标记消息为已读。监听进程需要持续运行；退出后不会在后台继续收取消息。
 
 ## 本地事件服务
 
 ```sh
 mkdir -p "$HOME/.larkmate/events"
 chmod 700 "$HOME/.larkmate/events"
-larkmate listen-service --socket "$HOME/.larkmate/events/messages.sock" --chat "$CHAT_ID"
+larkmate listen-service --socket "$HOME/.larkmate/events/messages.sock"
 ```
 
-可重复传入 `--chat`。其他本机程序通过 Unix socket 订阅 JSON Lines：
+默认监听全部会话；传入 `--chat "$CHAT_ID"` 可限制范围，并可重复指定。也可用 `--all` 显式表示全局监听。其他本机程序通过 Unix socket 订阅 JSON Lines：
 
 ```sh
 curl -N --unix-socket "$HOME/.larkmate/events/messages.sock" http://localhost/events
 ```
 
-socket 为 `0600`，父目录必须归当前用户所有且不能被其他用户写入。所有连接者接收启动时指定的全部会话；订阅者不在线时不保存事件。也可用 `larkmate listen --chat "$CHAT_ID"` 直接向标准输出流式输出，不启动服务。
+socket 为 `0600`，父目录必须归当前用户所有且不能被其他用户写入。所有连接者接收服务配置范围内的消息；订阅者不在线时不保存事件。也可用 `larkmate listen` 直接向标准输出流式输出，不启动服务；该命令同样支持 `--chat` 限定会话。
 
 ## 规则与脚本
 
@@ -47,7 +47,7 @@ socket 为 `0600`，父目录必须归当前用户所有且不能被其他用户
 larkmate listen-run --rules ./rules.json
 ```
 
-`chatIds` 和 `run` 必填；每条规则至少指定一个会话。其他筛选项可省略，填写的条件同时生效。`types` 使用消息类型数字，`4` 表示文本；`contains` 和 `excludeContains` 区分大小写。`excludeSelf` 为 `true` 时跳过当前账号发送的消息。
+`run` 必填；省略 `chatIds` 或传入空数组时匹配全部会话，填写会话 ID 时只匹配指定会话。其他筛选项可省略，填写的条件同时生效。`types` 使用消息类型数字，`4` 表示文本；`contains` 和 `excludeContains` 区分大小写。`excludeSelf` 为 `true` 时跳过当前账号发送的消息。
 
 过滤器和目标脚本均为固定的绝对可执行文件路径，`args` 为固定参数；消息不会经由 shell 解析。每次调用时，通过标准输入传入一行消息 JSON。过滤器退出码 `0` 表示匹配，`1` 表示不匹配，其余退出码或超时均视为错误；仅在匹配成功时执行 `run`。过滤器和脚本的标准输出与标准错误不会被转发，失败信息写入监听进程的标准错误。脚本默认超时时间为 30 秒，可配置为 1–600 秒。规则按顺序执行，脚本执行失败不会自动重试。
 
@@ -57,4 +57,4 @@ larkmate listen-run --rules ./rules.json
 
 `message` 事件包含 `id`、`chatId`、`senderId`、`position`、`type`、`text`、`createTime` 等字段。文本无法完整解析时 `textIncomplete` 为 `true`；其他消息类型的 `text` 可能为 `null`。规则模式仅对 `message` 执行脚本，`gap` 事件写到标准错误。
 
-连接中断后会自动重连，并在进程保持运行期间按会话位置尽力补拉消息；补拉的消息带有 `backfill: true` 标记。若出现补拉失败、位置不可读或超出补拉上限等情况，会输出 `gap`，调用方应检查并按需通过 `history` 补查。去重状态与会话位置均保存在内存中，进程重启后不会恢复；不保证事件不丢失，也不保证脚本恰好执行一次。
+连接中断后会自动重连，并在进程保持运行期间按会话位置尽力补拉消息；补拉的消息带有 `backfill: true` 标记。全局模式仅能补拉当前进程已收到过消息的会话；中断期间新出现或此前未收到消息的会话可能遗漏，因此会发出 `global_coverage_unknown` 缺口事件。若出现补拉失败、位置不可读或超出补拉上限等情况，也会输出 `gap`，调用方应检查并按需通过 `history` 补查。去重状态与会话位置均保存在内存中，进程重启后不会恢复；不保证事件不丢失，也不保证脚本恰好执行一次。

@@ -13,9 +13,11 @@ import { callOsDelegate, osDelegateProxy } from '../src/os-delegate-client.js';
 import { SidebarFilters } from '../src/sidebar-filters.js';
 import { FeedGroups } from '../src/feed-groups.js';
 import { Tasks } from '../src/tasks.js';
+import { Calendar } from '../src/calendar.js';
 
+const defaultTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.11');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.12');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.option('--broker <path>', 'use a restricted local broker socket (or LARKMATE_BROKER)');
 program.option('--broker-token-file <path>', 'read the agent token (or LARKMATE_BROKER_TOKEN_FILE)');
@@ -71,6 +73,7 @@ async function sidebar() {
   return new SidebarFilters(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) }));
 }
 
+async function calendar() { const remote = proxy('calendar'); return remote || new Calendar(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) })); }
 async function feeds() { const remote = proxy('feeds'); return remote || new FeedGroups(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) })); }
 async function tasks() { const remote = proxy('tasks'); return remote || new Tasks(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) })); }
 async function readJson(path, fallback) {
@@ -108,7 +111,7 @@ program.command('broker-serve').description('Start a restricted local agent brok
     let promise;
     const getServices = () => promise ||= (async () => {
       const gateway = new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) });
-      return { client: new LarkMateClient(gateway), controls: new SessionControls(gateway), minutes: new Minutes(gateway), sidebar: new SidebarFilters(gateway), feeds: new FeedGroups(gateway), tasks: new Tasks(gateway) };
+      return { client: new LarkMateClient(gateway), controls: new SessionControls(gateway), minutes: new Minutes(gateway), sidebar: new SidebarFilters(gateway), feeds: new FeedGroups(gateway), tasks: new Tasks(gateway), calendar: new Calendar(gateway) };
     })().catch(error => { promise = undefined; throw error; });
     const broker = await startBroker({ socketPath: o.socket, policy, token, getServices });
     output({ status: 'listening', socket: broker.socketPath });
@@ -159,6 +162,47 @@ program.command('group-query').description('Find feed items by sidebar group acr
   .option('--query <text>', 'filter names') .option('--limit <number>', 'feed page size', '100').option('--pages <number>', 'maximum pages to scan', '20')
   .option('--cursor <cursor>', 'continue from the previous result').option('--parent <id>', 'search inside a box')
   .action(async o => output(await (await feeds()).query({ group: o.group, query: o.query, limit: Number(o.limit), pages: Number(o.pages), cursor: o.cursor, parent: o.parent })));
+
+program.command('calendars').description('List managed and subscribed calendars.')
+  .option('--pages <number>', 'maximum pages', '20').action(async o => output(await (await calendar()).calendars({maxPages:Number(o.pages)})));
+program.command('calendar-search').description('Search people, shared calendars and meeting rooms.').requiredOption('--query <text>').option('--offset <number>','search offset','0').option('--limit <number>','result count','20')
+  .action(async o => output(await (await calendar()).searchCalendars({query:o.query,offset:Number(o.offset),count:Number(o.limit)})));
+program.command('calendar-events').description('Query calendar events overlapping a time range.')
+  .requiredOption('--start <time>','ISO date-time with timezone or Unix seconds').requiredOption('--end <time>','exclusive end')
+  .option('--calendar <id>','repeatable calendar ID',collect,[]).option('--all-calendars','include all listed calendars').option('--pages <number>','maximum pages per calendar','20')
+  .action(async o => output(await (await calendar()).events({start:o.start,end:o.end,calendarIds:o.calendar,allCalendars:!!o.allCalendars,maxPages:Number(o.pages)})));
+program.command('calendar-rooms').description('Search available meeting rooms.')
+  .requiredOption('--start <time>').requiredOption('--end <time>').option('--query <text>','room name','').option('--limit <number>','page size','50').option('--cursor <number>','next page','0').option('--timezone <zone>','IANA timezone',defaultTimezone).option('--repeat <rrule>')
+  .action(async o => output(await (await calendar()).rooms({start:o.start,end:o.end,query:o.query,count:Number(o.limit),cursor:Number(o.cursor),timezone:o.timezone,rrule:o.repeat})));
+program.command('event-get').description('Read event details and attendees.').requiredOption('--id <id>').action(async o => output(await (await calendar()).event({eventId:o.id})));
+program.command('event-create').description('Create a calendar event; participants may be notified.')
+  .option('--title <text>').option('--start <time>').option('--end <time>').option('--calendar <id>').option('--timezone <zone>','IANA timezone',defaultTimezone)
+  .option('--description <text>').option('--location <text>').option('--all-day').option('--repeat <rrule>')
+  .option('--user <id>','repeatable attendee user ID',collect,[]).option('--group <id>','repeatable group ID',collect,[]).option('--room <id>','repeatable room calendar ID',collect,[])
+  .option('--reminder <minutes>','repeatable reminder before start',collect,[]).option('--no-notify','suppress event notifications').option('--json <path>','WebCalendarEvent JSON or - for stdin')
+  .action(async o => {let input=await readJson(o.json,{});if(o.location)input.locations=[{name:o.location}];if(o.reminder.length)input.reminders=o.reminder.map(x=>{let minutes=Number(x);if(!Number.isInteger(minutes)||minutes<0)throw new FeishuError('INVALID_ARGUMENT','Invalid reminder.');return {minutes,method:3}});
+    output(await (await calendar()).createEvent({input,title:o.title,start:o.start,end:o.end,calendarId:o.calendar,timezone:o.timezone,description:o.description,allDay:o.allDay,repeat:o.repeat,users:o.user,groups:o.group,rooms:o.room,notify:o.notify}));});
+program.command('event-update').description('Update an event; participants may be notified.').requiredOption('--id <id>')
+  .option('--title <text>').option('--start <time>').option('--end <time>').option('--description <text>').option('--repeat <rrule>').option('--location <text>')
+  .option('--add-user <id>','repeatable user ID',collect,[]).option('--remove-user <id>','repeatable user ID',collect,[])
+  .option('--add-group <id>','repeatable group ID',collect,[]).option('--remove-group <id>','repeatable group ID',collect,[])
+  .option('--add-room <id>','repeatable room calendar ID',collect,[]).option('--remove-room <id>','repeatable room calendar ID',collect,[])
+  .option('--span <number>','0 normal, 1 occurrence, 2 future or 3 entire series','0').option('--instance-start <time>','occurrence start')
+  .option('--no-notify','suppress event notifications').option('--json <path>','event field patch JSON or - for stdin')
+  .action(async o => {let patch=await readJson(o.json,{});for(const [opt,key] of [['title','summary'],['start','startTime'],['end','endTime'],['description','description'],['repeat','rrule']])if(o[opt]!=null)patch[key]=o[opt];if(o.location!=null)patch.locations=[{name:o.location}];
+    output(await (await calendar()).updateEvent({eventId:o.id,patch,span:Number(o.span),instanceStart:o.instanceStart,notify:o.notify,addUsers:o.addUser,removeUsers:o.removeUser,addGroups:o.addGroup,removeGroups:o.removeGroup,addRooms:o.addRoom,removeRooms:o.removeRoom}));});
+program.command('event-delete').description('Delete an event; participants may be notified.').requiredOption('--id <id>').option('--span <number>','0 normal, 1 occurrence, 2 future or 3 entire series','0').option('--instance-start <time>').option('--no-notify')
+  .action(async o => output(await (await calendar()).deleteEvent({eventId:o.id,span:Number(o.span),instanceStart:o.instanceStart,notify:o.notify})));
+program.command('event-share').description('Share an event to one or more chats.').requiredOption('--id <id>').requiredOption('--chat <id>','repeatable numeric chat ID',collect,[])
+  .action(async o => output(await (await calendar()).share({eventId:o.id,chatIds:o.chat})));
+program.command('event-reply').description('Respond to a calendar invitation.').requiredOption('--id <id>').requiredOption('--response <status>','accept, decline or tentative').option('--comment <text>').option('--quit-meeting')
+  .action(async o => output(await (await calendar()).reply({eventId:o.id,response:o.response,comment:o.comment,quitMeeting:!!o.quitMeeting})));
+program.command('calendar-create').description('Create a calendar.').option('--name <text>').option('--description <text>').option('--timezone <zone>','IANA timezone',defaultTimezone).option('--json <path>','WebCalendar JSON or - for stdin')
+  .action(async o => output(await (await calendar()).createCalendar({input:await readJson(o.json,{}),name:o.name,description:o.description,timezone:o.timezone})));
+program.command('calendar-update').description('Update calendar settings and members.').requiredOption('--id <id>').option('--name <text>').option('--description <text>').option('--json <path>','calendar field patch JSON or - for stdin')
+  .action(async o => {let patch=await readJson(o.json,{});if(o.name!=null)patch.summary=o.name;if(o.description!=null)patch.description=o.description;output(await (await calendar()).updateCalendar({calendarId:o.id,patch}));});
+program.command('calendar-delete').description('Delete a non-primary calendar.').requiredOption('--id <id>').action(async o => output(await (await calendar()).deleteCalendar({calendarId:o.id})));
+for(const [name,subscribe] of [['calendar-subscribe',true],['calendar-unsubscribe',false]])program.command(name).description('Change a calendar subscription.').requiredOption('--id <id>').action(async o=>output(await (await calendar()).subscription({calendarId:o.id,subscribe})));
 
 program.command('task-center').description('List task containers, views and sections.').action(async () => output(await (await tasks()).center()));
 program.command('tasks-list').description('List tasks from a task center view.')

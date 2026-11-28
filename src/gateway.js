@@ -5,6 +5,8 @@ import { readFile } from 'node:fs/promises';
 import { FeishuError } from './errors.js';
 
 const protoFile = fileURLToPath(new URL('../proto/lark.proto', import.meta.url));
+const calendarProtoFile = fileURLToPath(new URL('../proto/calendar-schema.json', import.meta.url));
+let calendarProtoPromise;
 const todoProtoFile = fileURLToPath(new URL('../proto/todo-schema.json', import.meta.url));
 let todoProtoPromise;
 const defaults = {
@@ -107,7 +109,7 @@ export class Gateway {
   }
 
   encode(name, data) {
-    const type = (name.startsWith('todo.') || name.startsWith('todo_entities.') ? this.todoProto : this.proto).lookupType(name);
+    const type = (/^(calendar_web|calendar_events|calendar_entities|calendars)\./.test(name) ? this.calendarProto : name.startsWith('todo.') || name.startsWith('todo_entities.') ? this.todoProto : this.proto).lookupType(name);
     const message = type.fromObject(data);
     const error = type.verify(message);
     if (error) throw new FeishuError('PROTOCOL_INPUT_INVALID', `Invalid ${name} payload.`);
@@ -115,7 +117,7 @@ export class Gateway {
   }
 
   decode(name, bytes) {
-    return (name.startsWith('todo.') || name.startsWith('todo_entities.') ? this.todoProto : this.proto).lookupType(name).decode(bytes);
+    return (/^(calendar_web|calendar_events|calendar_entities|calendars)\./.test(name) ? this.calendarProto : name.startsWith('todo.') || name.startsWith('todo_entities.') ? this.todoProto : this.proto).lookupType(name).decode(bytes);
   }
 
   async uploadRequest(path, body, contentType) {
@@ -160,9 +162,16 @@ export class Gateway {
     return this.todoProto;
   }
 
+  async ensureCalendarProto() {
+    calendarProtoPromise ||= readFile(calendarProtoFile, 'utf8').then(text => protobuf.Root.fromJSON(JSON.parse(text)));
+    this.calendarProto = await calendarProtoPromise;
+    return this.calendarProto;
+  }
+
   async call(command, requestType, body, { version = '2.7.0', mutating = false, operation } = {}) {
     await this.authenticate();
     if (requestType.startsWith('todo.')) await this.ensureTodoProto();
+    if (/^(calendar_web|calendar_events|calendar_entities|calendars)\./.test(requestType)) await this.ensureCalendarProto();
     const requestId = randomUUID();
     const packet = this.encode('Packet', {
       payloadType: 1, cmd: command, cid: requestId,

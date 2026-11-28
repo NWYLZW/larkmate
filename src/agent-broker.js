@@ -11,6 +11,11 @@ import { handleFileRequest, brokerUpload, brokerDownload } from './agent-files.j
 // An explicit mapping prevents callers from reaching arbitrary object methods.
 const routes = {
   status: ['client', 'status', 'global'], search: ['client', 'search', 'global'],
+  'calendars': ['calendar','calendars','global'], 'calendar-search': ['calendar','searchCalendars','global'],
+  'calendar-events': ['calendar','events','global'], 'event-get': ['calendar','event','global'], 'calendar-rooms': ['calendar','rooms','global'],
+  'event-create': ['calendar','createEvent','global'], 'event-update': ['calendar','updateEvent','global'], 'event-delete': ['calendar','deleteEvent','global'],
+  'event-share': ['calendar','share','allChats'], 'event-reply': ['calendar','reply','global'], 'calendar-create': ['calendar','createCalendar','global'], 'calendar-update': ['calendar','updateCalendar','global'],
+  'calendar-delete': ['calendar','deleteCalendar','global'], 'calendar-subscribe': ['calendar','subscription','global'], 'calendar-unsubscribe': ['calendar','subscription','global'],
   'group-query': ['feeds', 'query', 'allChats'],
   'task-center': ['tasks', 'center', 'global'], 'tasks-list': ['tasks', 'list', 'global'],
   'task-search': ['tasks', 'search', 'global'], 'task-get': ['tasks', 'get', 'global'],
@@ -50,7 +55,7 @@ const routes = {
 const writes = new Set(['send', 'pin', 'unpin', 'mark', 'unmark', 'mute', 'unmute', 'done', 'inbox', 'box', 'unbox', 'read', 'unread',
   'label-create', 'label-rename', 'label-delete', 'label-add', 'label-remove', 'chat-open', 'group-create', 'group-invite',
   'group-update', 'group-dissolve', 'group-bot-protection', 'message-edit', 'message-forward', 'message-recall', 'favorite-add',
-  'favorite-remove', 'reaction-add', 'reaction-remove', 'minutes-request-access', 'send-file', 'send-image', 'sidebar-set', 'task-create', 'task-update', 'task-complete', 'task-reopen', 'task-delete']);
+  'favorite-remove', 'reaction-add', 'reaction-remove', 'minutes-request-access', 'send-file', 'send-image', 'sidebar-set', 'task-create', 'task-update', 'task-complete', 'task-reopen', 'task-delete', 'event-create', 'event-update', 'event-delete', 'event-share', 'event-reply', 'calendar-create', 'calendar-update', 'calendar-delete', 'calendar-subscribe', 'calendar-unsubscribe']);
 
 export function brokerCommands() {
   return Object.entries(routes).map(([command, [, , scope]]) => ({ command,
@@ -122,6 +127,7 @@ export function authorize(policy, request) {
   const args = request.args;
   const chatAllowed = id => numeric(id) && (policy.allowAllChats || policy.chatIds.includes(id));
   if (scope === 'global' && !policy.allowGlobal) denied();
+  if (['calendar-subscribe', 'calendar-unsubscribe'].includes(request.command) && (args.length !== 1 || !object(args[0]) || args[0].subscribe !== (request.command === 'calendar-subscribe'))) denied();
   if (['task-complete', 'task-reopen'].includes(request.command) && (args.length !== 1 || !object(args[0]) || args[0].completed !== (request.command === 'task-complete'))) denied();
   if (['allChats', 'labelTrue', 'labelFalse', 'reactionAdd', 'reactionRemove'].includes(scope) && (!policy.allowGlobal || !policy.allowAllChats)) denied();
   if (scope === 'allMinutes' && (!policy.allowGlobal || !policy.allowAllMinutes)) denied();

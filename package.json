@@ -1,6 +1,6 @@
 {
   "name": "larkmate",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "A small, user-identity Feishu CLI with a modular gateway client",
   "type": "module",
   "license": "UNLICENSED",
@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "commander": "^13.1.0",
-    "protobufjs": "^8.6.0"
+    "protobufjs": "^8.6.0",
+    "rrule": "^2.8.1"
   }
 }

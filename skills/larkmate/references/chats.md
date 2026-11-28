@@ -7,6 +7,10 @@ larkmate search-messages --query '消息关键词' --cursor "$NEXT_CURSOR"
 larkmate chats --limit 50
 larkmate chats --cursor "$NEXT_CURSOR"
 larkmate chats --parent "$BOX_ID"
+larkmate group-query --group unread --pages 3
+larkmate group-query --group at_me --query '关键词'
+larkmate sidebar-list
+larkmate sidebar-set --filter muted --visibility show --position 2
 larkmate chat-info --chat "$CHAT_ID"
 larkmate history --chat "$CHAT_ID" --limit 50 --pages 3
 larkmate message-link --chat "$CHAT_ID" --message "$MESSAGE_ID"
@@ -43,3 +47,7 @@ larkmate label-remove --label "$LABEL_ID" --chat "$CHAT_ID"
 ```
 
 `mark` 对应聊天右键菜单的旗帜“标记”。`read` 会推进到调用时最新可见位置并清除手动未读标记；`unread` 可能把已完成会话放回收件箱。标签创建、重命名和删除分别使用 `label-create`、`label-rename`、`label-delete`，会话成员调整仅支持手动标签。删除标签会删除整个个人标签。
+
+`group-query` 支持消息、未读、免打扰、@我、单聊、群组、话题群、云文档、话题和已完成分组；可按名称筛选，使用 `nextCursor` 继续扫描。收纳盒需以 `--parent` 单独查询，`unknownState` 表示无法确定状态的数量。@我通过未读提及消息匹配会话，可能与飞书界面显示不同。标记和标签分别用 `marked`、`labels` 和 `label-chats` 查询。
+
+`sidebar-set` 可以显示、隐藏或排序分组，并设置其在消息分组中的展示规则和 @所有人选项；使用 `larkmate sidebar-set --help` 查看参数。修改前先查询当前设置。

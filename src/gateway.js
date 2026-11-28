@@ -1,9 +1,12 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import protobuf from 'protobufjs';
+import { readFile } from 'node:fs/promises';
 import { FeishuError } from './errors.js';
 
 const protoFile = fileURLToPath(new URL('../proto/lark.proto', import.meta.url));
+const todoProtoFile = fileURLToPath(new URL('../proto/todo-schema.json', import.meta.url));
+let todoProtoPromise;
 const defaults = {
   csrf: 'https://internal-api-lark-api.feishu.cn/accounts/csrf',
   user: 'https://internal-api-lark-api.feishu.cn/accounts/web/user',
@@ -104,7 +107,7 @@ export class Gateway {
   }
 
   encode(name, data) {
-    const type = this.proto.lookupType(name);
+    const type = (name.startsWith('todo.') || name.startsWith('todo_entities.') ? this.todoProto : this.proto).lookupType(name);
     const message = type.fromObject(data);
     const error = type.verify(message);
     if (error) throw new FeishuError('PROTOCOL_INPUT_INVALID', `Invalid ${name} payload.`);
@@ -112,7 +115,7 @@ export class Gateway {
   }
 
   decode(name, bytes) {
-    return this.proto.lookupType(name).decode(bytes);
+    return (name.startsWith('todo.') || name.startsWith('todo_entities.') ? this.todoProto : this.proto).lookupType(name).decode(bytes);
   }
 
   async uploadRequest(path, body, contentType) {
@@ -151,8 +154,15 @@ export class Gateway {
     return { data, requestId };
   }
 
+  async ensureTodoProto() {
+    todoProtoPromise ||= readFile(todoProtoFile, 'utf8').then(text => protobuf.Root.fromJSON(JSON.parse(text)));
+    this.todoProto = await todoProtoPromise;
+    return this.todoProto;
+  }
+
   async call(command, requestType, body, { version = '2.7.0', mutating = false, operation } = {}) {
     await this.authenticate();
+    if (requestType.startsWith('todo.')) await this.ensureTodoProto();
     const requestId = randomUUID();
     const packet = this.encode('Packet', {
       payloadType: 1, cmd: command, cid: requestId,

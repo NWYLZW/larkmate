@@ -11,6 +11,12 @@ import { handleFileRequest, brokerUpload, brokerDownload } from './agent-files.j
 // An explicit mapping prevents callers from reaching arbitrary object methods.
 const routes = {
   status: ['client', 'status', 'global'], search: ['client', 'search', 'global'],
+  'group-query': ['feeds', 'query', 'allChats'],
+  'task-center': ['tasks', 'center', 'global'], 'tasks-list': ['tasks', 'list', 'global'],
+  'task-search': ['tasks', 'search', 'global'], 'task-get': ['tasks', 'get', 'global'],
+  'task-create': ['tasks', 'create', 'global'], 'task-update': ['tasks', 'update', 'global'],
+  'task-complete': ['tasks', 'complete', 'global'], 'task-reopen': ['tasks', 'complete', 'global'], 'task-delete': ['tasks', 'delete', 'global'],
+  'sidebar-list': ['sidebar', 'list', 'global'], 'sidebar-set': ['sidebar', 'set', 'allChats'],
   'search-messages': ['client', 'searchMessages', 'allChats'], chats: ['client', 'chats', 'allChats'],
   pinned: ['controls', 'pinned', 'allChats'], marked: ['controls', 'marked', 'allChats'],
   labels: ['controls', 'labels', 'allChats'], 'label-chats': ['controls', 'labelChats', 'allChats'],
@@ -44,7 +50,7 @@ const routes = {
 const writes = new Set(['send', 'pin', 'unpin', 'mark', 'unmark', 'mute', 'unmute', 'done', 'inbox', 'box', 'unbox', 'read', 'unread',
   'label-create', 'label-rename', 'label-delete', 'label-add', 'label-remove', 'chat-open', 'group-create', 'group-invite',
   'group-update', 'group-dissolve', 'group-bot-protection', 'message-edit', 'message-forward', 'message-recall', 'favorite-add',
-  'favorite-remove', 'reaction-add', 'reaction-remove', 'minutes-request-access', 'send-file', 'send-image']);
+  'favorite-remove', 'reaction-add', 'reaction-remove', 'minutes-request-access', 'send-file', 'send-image', 'sidebar-set', 'task-create', 'task-update', 'task-complete', 'task-reopen', 'task-delete']);
 
 export function brokerCommands() {
   return Object.entries(routes).map(([command, [, , scope]]) => ({ command,
@@ -116,6 +122,7 @@ export function authorize(policy, request) {
   const args = request.args;
   const chatAllowed = id => numeric(id) && (policy.allowAllChats || policy.chatIds.includes(id));
   if (scope === 'global' && !policy.allowGlobal) denied();
+  if (['task-complete', 'task-reopen'].includes(request.command) && (args.length !== 1 || !object(args[0]) || args[0].completed !== (request.command === 'task-complete'))) denied();
   if (['allChats', 'labelTrue', 'labelFalse', 'reactionAdd', 'reactionRemove'].includes(scope) && (!policy.allowGlobal || !policy.allowAllChats)) denied();
   if (scope === 'allMinutes' && (!policy.allowGlobal || !policy.allowAllMinutes)) denied();
   if (scope === 'file' && (args.length !== 1 || !only(args[0], method === 'download' ? ['chatId', 'messageId', 'key', 'position'] : ['chatId']) || !chatAllowed(args[0].chatId))) denied();

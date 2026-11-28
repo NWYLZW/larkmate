@@ -5,14 +5,17 @@ import { Gateway } from '../src/gateway.js';
 import { LarkMateClient } from '../src/client.js';
 import { SessionControls } from '../src/session-controls.js';
 import { Minutes, formatTranscript } from '../src/minutes.js';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, readFile } from 'node:fs/promises';
 import { FeishuError } from '../src/errors.js';
 import { exportMessages } from '../src/export-messages.js';
 import { brokerCall, brokerCommands, brokerProxy, createBrokerToken, loadBrokerToken, loadPolicy, startBroker } from '../src/agent-broker.js';
 import { callOsDelegate, osDelegateProxy } from '../src/os-delegate-client.js';
+import { SidebarFilters } from '../src/sidebar-filters.js';
+import { FeedGroups } from '../src/feed-groups.js';
+import { Tasks } from '../src/tasks.js';
 
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.10');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.11');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.option('--broker <path>', 'use a restricted local broker socket (or LARKMATE_BROKER)');
 program.option('--broker-token-file <path>', 'read the agent token (or LARKMATE_BROKER_TOKEN_FILE)');
@@ -62,6 +65,21 @@ async function minutes() {
   return new Minutes(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) }));
 }
 
+async function sidebar() {
+  const remote = proxy('sidebar');
+  if (remote) return remote;
+  return new SidebarFilters(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) }));
+}
+
+async function feeds() { const remote = proxy('feeds'); return remote || new FeedGroups(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) })); }
+async function tasks() { const remote = proxy('tasks'); return remote || new Tasks(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) })); }
+async function readJson(path, fallback) {
+  if (!path) return fallback;
+  let data; try { data = path === '-' ? await new Promise((resolve, reject) => { let text = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', x => { text += x; if (text.length > 1048576) reject(new Error()); }); process.stdin.on('end', () => resolve(text)); process.stdin.on('error', reject); }) : await readFile(path, 'utf8');
+    if (Buffer.byteLength(data) > 1048576) throw new Error(); return JSON.parse(data);
+  } catch { throw new FeishuError('INVALID_ARGUMENT', 'Cannot read JSON input (maximum 1 MiB).'); }
+}
+
 program.command('broker-commands').description('List operations supported by the agent broker and their scopes.')
   .action(() => output({ items: brokerCommands() }));
 
@@ -90,7 +108,7 @@ program.command('broker-serve').description('Start a restricted local agent brok
     let promise;
     const getServices = () => promise ||= (async () => {
       const gateway = new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) });
-      return { client: new LarkMateClient(gateway), controls: new SessionControls(gateway), minutes: new Minutes(gateway) };
+      return { client: new LarkMateClient(gateway), controls: new SessionControls(gateway), minutes: new Minutes(gateway), sidebar: new SidebarFilters(gateway), feeds: new FeedGroups(gateway), tasks: new Tasks(gateway) };
     })().catch(error => { promise = undefined; throw error; });
     const broker = await startBroker({ socketPath: o.socket, policy, token, getServices });
     output({ status: 'listening', socket: broker.socketPath });
@@ -136,8 +154,59 @@ program.command('chats').description('List a page of inbox chats without opening
     output(page);
   });
 
+program.command('group-query').description('Find feed items by sidebar group across pages.')
+  .requiredOption('--group <name>', 'messages, unread, muted, at_me, p2p, group, topic_group, docs, threads or done')
+  .option('--query <text>', 'filter names') .option('--limit <number>', 'feed page size', '100').option('--pages <number>', 'maximum pages to scan', '20')
+  .option('--cursor <cursor>', 'continue from the previous result').option('--parent <id>', 'search inside a box')
+  .action(async o => output(await (await feeds()).query({ group: o.group, query: o.query, limit: Number(o.limit), pages: Number(o.pages), cursor: o.cursor, parent: o.parent })));
+
+program.command('task-center').description('List task containers, views and sections.').action(async () => output(await (await tasks()).center()));
+program.command('tasks-list').description('List tasks from a task center view.')
+  .option('--scope <name>', 'mine, followed, all, created, assigned or completed', 'mine').option('--container <id>', 'task center container ID')
+  .option('--limit <number>', 'tasks per page', '50').option('--cursor <cursor>', 'continue from previous page')
+  .action(async o => output(await (await tasks()).list({ scope: o.scope, container: o.container, limit: Number(o.limit), cursor: o.cursor })));
+program.command('task-search').description('Search accessible tasks.').requiredOption('--query <text>').option('--limit <number>', 'page size', '20').option('--cursor <cursor>')
+  .action(async o => output(await (await tasks()).search({ query: o.query, limit: Number(o.limit), cursor: o.cursor })));
+program.command('task-get').description('Read a task.').requiredOption('--id <id>').action(async o => output(await (await tasks()).get({ taskId: o.id })));
+program.command('task-create').description('Create a task.').option('--title <text>').option('--description <text>').option('--start <time>', 'milliseconds or ISO date')
+  .option('--due <time>', 'milliseconds or ISO date').option('--all-day', 'all-day task').option('--assignee <id>', 'repeatable user ID', collect, [])
+  .option('--follower <id>', 'repeatable user ID', collect, []).option('--list <id>', 'repeatable task list ID', collect, [])
+  .option('--repeat <rrule>', 'recurrence rule').option('--points <value>').option('--json <path>', 'full InputTask JSON, or - for stdin')
+  .action(async o => output(await (await tasks()).create({ input: await readJson(o.json, {}), title: o.title, description: o.description, start: o.start, due: o.due, allDay: o.allDay, assignees: o.assignee, followers: o.follower, lists: o.list, repeat: o.repeat, points: o.points })));
+program.command('task-update').description('Update task fields and members.').requiredOption('--id <id>').option('--title <text>').option('--description <text>')
+  .option('--start <time>', 'milliseconds or ISO date; 0 clears').option('--due <time>', 'milliseconds or ISO date; 0 clears')
+  .option('--all-day <bool>', 'true or false').option('--repeat <rrule>').option('--points <value>').option('--milestone <bool>', 'true or false')
+  .option('--add-assignee <id>', 'repeatable user ID', collect, []).option('--remove-assignee <id>', 'repeatable user ID', collect, [])
+  .option('--add-follower <id>', 'repeatable user ID', collect, []).option('--remove-follower <id>', 'repeatable user ID', collect, [])
+  .option('--commits-json <path>', 'advanced commit array JSON, or - for stdin')
+  .action(async o => { const patch = {}; for (const key of ['title','description','start','due','repeat','points']) if (o[key] != null) patch[key] = o[key];
+    for (const key of ['allDay','milestone']) if (o[key] != null) { if (!['true','false'].includes(o[key])) throw new FeishuError('INVALID_ARGUMENT', key + ' must be true or false.'); patch[key] = o[key] === 'true'; }
+    for (const key of ['addAssignee','removeAssignee','addFollower','removeFollower']) if (o[key].length) patch[key + 's'] = o[key];
+    output(await (await tasks()).update({ taskId: o.id, patch, commits: await readJson(o.commitsJson, []) })); });
+for (const [command, completed] of [['task-complete', true], ['task-reopen', false]]) program.command(command).description('Change task completion status.').requiredOption('--id <id>')
+  .option('--assignee <id>', 'repeatable assignee ID', collect, []).action(async o => output(await (await tasks()).complete({ taskId: o.id, completed, assignees: o.assignee })));
+program.command('task-delete').description('Delete a task.').requiredOption('--id <id>').action(async o => output(await (await tasks()).delete({ taskId: o.id })));
+
 program.command('pinned').description('List pinned conversations.').action(async () => output(await (await controls()).pinned()));
 program.command('marked').description('List conversations marked with a flag.').action(async () => output(await (await controls()).marked()));
+program.command('sidebar-list').description('List sidebar groups and display settings.').action(async () => output(await (await sidebar()).list()));
+program.command('sidebar-set').description('Change sidebar group visibility, order or display settings.')
+  .requiredOption('--filter <name-or-id>', 'filter name from sidebar-list or numeric ID')
+  .option('--visibility <mode>', 'show or hide')
+  .option('--position <number>', 'one-based position among visible groups')
+  .option('--display <mode>', 'always, new or never in the message group')
+  .option('--message-type <type>', 'all, at_me, at_all or star_contacts; repeatable', collect, [])
+  .option('--at-all <mode>', 'include @all in the @me group: true or false')
+  .option('--show-filter <bool>', 'show the group sidebar: true or false')
+  .option('--show-mute-filter <bool>', 'show muted filter: true or false')
+  .option('--flag-sorting-rule <number>', 'native numeric flag sorting rule')
+  .option('--commonly-used <filter>', 'repeatable common filter name or ID', collect, [])
+  .action(async o => {
+    if (o.atAll != null && !['true', 'false'].includes(o.atAll)) throw new FeishuError('INVALID_ARGUMENT', 'at-all must be true or false.');
+    for (const k of ['showFilter', 'showMuteFilter']) if (o[k] != null && !['true', 'false'].includes(o[k])) throw new FeishuError('INVALID_ARGUMENT', k + ' must be true or false.');
+    output(await (await sidebar()).set({ filter: o.filter, visibility: o.visibility, ...(o.position != null ? { position: Number(o.position) } : {}),
+      display: o.display, ...(o.messageType.length ? { messageTypes: o.messageType } : {}), ...(o.atAll != null ? { atAll: o.atAll === 'true' } : {}), ...(o.showFilter != null ? { showFilter: o.showFilter === 'true' } : {}), ...(o.showMuteFilter != null ? { showMuteFilter: o.showMuteFilter === 'true' } : {}), ...(o.flagSortingRule != null ? { flagSortingRule: Number(o.flagSortingRule) } : {}), ...(o.commonlyUsed.length ? { commonlyUsedFilters: o.commonlyUsed } : {}) }));
+  });
 program.command('labels').description('List personal conversation labels.').action(async () => output(await (await controls()).labels()));
 program.command('label-chats').description('List conversations in a label.')
   .requiredOption('--label <id>', 'numeric label ID').action(async o => output(await (await controls()).labelChats(o.label)));

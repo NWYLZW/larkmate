@@ -499,7 +499,11 @@ message PullFeedCardsResponse {
   map<string, Chat> chats = 1;
   repeated InboxCard cards = 3;
   optional int64 nextCursor = 4;
+  map<string, FeedDoc> docFeeds = 6;
+  map<string, FeedThread> threads = 8;
 }
+message FeedDoc { optional string id = 1; optional string title = 2; optional string url = 5; optional int32 newMessageCount = 10; }
+message FeedThread { optional string id = 1; optional string channelId = 2; optional string topic = 4; optional int32 newMessageCount = 10; }
 message CreateFileUploadRequest {
   optional int32 fileType = 3;
   optional string fileName = 5;
@@ -606,3 +610,40 @@ message BoxCardsRequest { map<string, int32> feedCards = 1; }
 message PatchFeedCardsRequest { optional int32 type = 1; repeated string ids = 2; repeated InboxCard cards = 3; }
 message PutReadMessagesRequest { optional string chatId = 1; repeated string messageIds = 2; optional int32 maxPosition = 3; }
 message PutReadMessagesResponse { optional int32 lastMessagePosition = 1; optional int32 newMessageCount = 2; optional int32 readPosition = 6; }
+
+// --- Conversation sidebar filters (cmd 7022/7023) ---
+message SidebarFilter { optional int32 systemFilter = 1; }
+message SidebarDisplayRule { optional int32 mainRule = 1; repeated int32 msgTypes = 2 [packed=false]; }
+message SidebarFilterSetting {
+  optional bool showFilter = 1;
+  repeated SidebarFilter usedFilters = 2;
+  optional int64 version = 3;
+  optional bool showMuteFilter = 4;
+  repeated SidebarFilter unusedFilters = 5;
+  optional bool showAtAllInAtFilter = 6;
+  repeated SidebarFilter commonlyUsedFilters = 7;
+  map<int32, int32> commonlyUsedFilterRealAction = 8;
+  optional int32 flagSortingRule = 9;
+  map<int32, SidebarDisplayRule> filterDisplayFeedRule = 10;
+  map<int32, int32> filterDisplayFeedRuleChanged = 11;
+}
+message PullSidebarFilterSettingRequest { optional bool needAllFilters = 1; optional int64 clientSupportVersion = 2; optional int64 clientSupportVersionV2 = 3; }
+message PullSidebarFilterSettingResponse { optional SidebarFilterSetting setting = 1; repeated SidebarFilter allFilters = 2; optional bool isDefaultSetting = 3; }
+message PutSidebarFilterSettingRequest {
+  optional bool showFilter = 1;
+  repeated SidebarFilter usedFilters = 2;
+  optional bool showMuteFilter = 3;
+  optional int64 clientSupportVersion = 4;
+  optional bool showAtAllInAtFilter = 5;
+  repeated SidebarFilter commonlyUsedFilters = 6;
+  optional int32 flagSortingRule = 7;
+  map<int32, SidebarDisplayRule> filterDisplayFeedRule = 8;
+  map<int64, SidebarDisplayRule> feedGroupDisplayFeedRule = 9;
+  optional int64 clientSupportVersionV2 = 10;
+  repeated int32 updateFields = 31 [packed=false];
+}
+message PutSidebarFilterSettingResponse { optional SidebarFilterSetting setting = 1; }
+message PullUnreadAtMessageIdsRequest { optional int32 version = 1; repeated int64 messageIds = 2 [packed=false]; }
+message PullUnreadAtMessageIdsResponse { repeated string messageIds = 1; map<string, string> messageThreadIds = 2; }
+message PullMessagesByIdsRequest { repeated string messageIds = 1; }
+message PullMessagesByIdsResponse { map<string, MessageEntity> messages = 1; }

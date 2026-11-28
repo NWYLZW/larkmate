@@ -51,7 +51,7 @@ LarkMate 可以由持有 Cookie 的账户启动本地代理，再让 Agent 使�
 
 `minutes-export`、`minutes-access-info` 和 `minutes-request-access` 按 `minuteTokens` 限制；申请权限会向妙记所有者提交请求。`minutes-list` 除须在 `allow` 中授权外，还必须同时开启 `allowGlobal` 和 `allowAllMinutes`。
 
-`status` 以及用于搜索用户、机器人、群聊的 `search` 需要开启 `allowGlobal`。跨会话搜索、会话及收藏列表、标签管理，以及仅凭消息 ID 操作的链接、编辑、撤回、转发、收藏和表情命令，除须在 `allow` 中各自授权外，还必须同时开启 `allowGlobal` 和 `allowAllChats`——这是因为代理无法仅凭消息 ID 判断其是否属于受限会话。群创建、邀请成员和机器人保护设置同样需要同时开启这两个开关。开启这些权限会扩大 Agent 可访问的信息范围或可执行的操作范围，请按需选择。
+`status`、用于搜索用户、机器人、群聊的 `search`、`sidebar-list` 以及任务命令需要开启 `allowGlobal`。任务命令分别授权，当前授权范围覆盖该用户可访问的任务，不能按单个任务限制。`group-query` 和 `sidebar-set` 同时需要 `allowGlobal` 与 `allowAllChats`。跨会话搜索、会话及收藏列表、标签管理，以及仅凭消息 ID 操作的链接、编辑、撤回、转发、收藏和表情命令，除须在 `allow` 中各自授权外，还必须同时开启 `allowGlobal` 和 `allowAllChats`——这是因为代理无法仅凭消息 ID 判断其是否属于受限会话。群创建、邀请成员和机器人保护设置同样需要同时开启这两个开关。开启这些权限会扩大 Agent 可访问的信息范围或可执行的操作范围，请按需选择。
 
 `send-file`、`send-image` 与 `download-file` 均可单独加入 `allow` 列表，并受 `chatIds` 约束。发送时，由 Agent 进程读取本地文件并传输内容；下载时，由 Agent 进程创建输出文件。代理不接受 Agent 指定的代理端本地路径，而是在私有临时目录中处理中转文件，并在正常结束或失败时将其删除。若进程异常终止，可能会遗留临时文件，因此部署方应保护并按需清理代理账户的临时目录。
 

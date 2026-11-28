@@ -14,10 +14,11 @@ import { SidebarFilters } from '../src/sidebar-filters.js';
 import { FeedGroups } from '../src/feed-groups.js';
 import { Tasks } from '../src/tasks.js';
 import { Calendar } from '../src/calendar.js';
+import { GroupManagement, groupSettingsSchema } from '../src/group-management.js';
 
 const defaultTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.13');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.14');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.option('--broker <path>', 'use a restricted local broker socket (or LARKMATE_BROKER)');
 program.option('--broker-token-file <path>', 'read the agent token (or LARKMATE_BROKER_TOKEN_FILE)');
@@ -73,6 +74,7 @@ async function sidebar() {
   return new SidebarFilters(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) }));
 }
 
+async function groups() { const remote = proxy('groups'); return remote || new GroupManagement(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) })); }
 async function calendar() { const remote = proxy('calendar'); return remote || new Calendar(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) })); }
 async function feeds() { const remote = proxy('feeds'); return remote || new FeedGroups(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) })); }
 async function tasks() { const remote = proxy('tasks'); return remote || new Tasks(new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) })); }
@@ -111,7 +113,7 @@ program.command('broker-serve').description('Start a restricted local agent brok
     let promise;
     const getServices = () => promise ||= (async () => {
       const gateway = new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) });
-      return { client: new LarkMateClient(gateway), controls: new SessionControls(gateway), minutes: new Minutes(gateway), sidebar: new SidebarFilters(gateway), feeds: new FeedGroups(gateway), tasks: new Tasks(gateway), calendar: new Calendar(gateway) };
+      return { client: new LarkMateClient(gateway), controls: new SessionControls(gateway), minutes: new Minutes(gateway), sidebar: new SidebarFilters(gateway), feeds: new FeedGroups(gateway), tasks: new Tasks(gateway), calendar: new Calendar(gateway), groups: new GroupManagement(gateway) };
     })().catch(error => { promise = undefined; throw error; });
     const broker = await startBroker({ socketPath: o.socket, policy, token, getServices });
     output({ status: 'listening', socket: broker.socketPath });
@@ -428,6 +430,33 @@ program.command('favorite-remove').description('Remove an item from your favorit
 program.command('favorites').description('Read the first page of your favorite messages.')
   .option('--limit <number>', 'maximum items, 1 to 100', '50')
   .action(async o => output(await (await client()).favorites({ limit: Number(o.limit) })));
+
+program.command('group-link').description('Create a group invitation link.').requiredOption('--chat <id>').option('--days <number>','validity days','7').option('--unlimited','no expiration')
+  .action(async o=>output(await (await groups()).link({chatId:o.chat,days:Number(o.days),unlimited:!!o.unlimited})));
+program.command('group-requests').description('List pending or processed join applications.').requiredOption('--chat <id>').option('--cursor <cursor>','page cursor','0')
+  .action(async o=>output(await (await groups()).requests({chatId:o.chat,cursor:o.cursor})));
+for(const [command,approve] of [['group-request-approve',true],['group-request-reject',false]])program.command(command).description('Review a group join application.').requiredOption('--chat <id>').requiredOption('--user <id>')
+  .action(async o=>output(await (await groups()).reviewRequest({chatId:o.chat,userId:o.user,approve})));
+program.command('group-post-users').description('List the group posting whitelist.').requiredOption('--chat <id>').action(async o=>output(await (await groups()).postUsers({chatId:o.chat})));
+program.command('group-settings-schema').description('Show supported group settings and values.').action(()=>output(groupSettingsSchema()));
+program.command('group-settings').description('Read group permissions, owner and announcement.').requiredOption('--chat <id>')
+  .action(async o=>output(await (await groups()).info({chatId:o.chat})));
+program.command('group-settings-set').description('Update group permissions and other settings.').requiredOption('--chat <id>').requiredOption('--json <path>','settings JSON or - for stdin')
+  .action(async o=>output(await (await groups()).setSettings({chatId:o.chat,settings:await readJson(o.json,{})})));
+program.command('group-admins').description('List group administrators.').requiredOption('--chat <id>').action(async o=>output(await (await groups()).admins({chatId:o.chat})));
+for(const [command,enabled] of [['group-admin-add',true],['group-admin-remove',false]])program.command(command).description('Change group administrators.').requiredOption('--chat <id>')
+  .requiredOption('--user <id>','repeatable user ID',collect,[]).action(async o=>output(await (await groups()).setAdmins({chatId:o.chat,userIds:o.user,enabled})));
+program.command('group-remove').description('Remove members from a group.').requiredOption('--chat <id>').requiredOption('--member <id>','repeatable member ID',collect,[])
+  .action(async o=>output(await (await groups()).remove({chatId:o.chat,userIds:o.member})));
+program.command('group-leave').description('Leave a group as the current user.').requiredOption('--chat <id>').option('--new-owner <id>','transfer ownership if required')
+  .action(async o=>output(await (await groups()).leave({chatId:o.chat,newOwnerId:o.newOwner})));
+program.command('group-owner').description('Transfer ownership of a group.').requiredOption('--chat <id>').requiredOption('--user <id>','new owner user ID')
+  .action(async o=>output(await (await groups()).setOwner({chatId:o.chat,userId:o.user})));
+program.command('group-post-set').description('Set who can send messages in a group.').requiredOption('--chat <id>').requiredOption('--mode <mode>','anyone, admin or whitelist')
+  .option('--add-user <id>','repeatable user ID',collect,[]).option('--remove-user <id>','repeatable user ID',collect,[])
+  .action(async o=>output(await (await groups()).setPost({chatId:o.chat,mode:o.mode,addUsers:o.addUser,removeUsers:o.removeUser})));
+program.command('group-join-history').description('Read group join and leave history.').requiredOption('--chat <id>').option('--cursor <cursor>').option('--limit <number>','page size','20')
+  .action(async o=>output(await (await groups()).history({chatId:o.chat,cursor:o.cursor,count:Number(o.limit)})));
 
 program.command('group-create').description('Create a group as the user.')
   .requiredOption('--name <name>', 'group name')

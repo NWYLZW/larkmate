@@ -47,7 +47,7 @@ LarkMate 可以由持有 Cookie 的账户启动本地代理，再让 Agent 使�
 
 运行 `larkmate broker-commands` 可查看代理支持的全部命令、各自所需的授权范围和是否修改数据。
 
-按会话限制时，可授权 `chat-info`、`chat-state`、`history`、`messages-export`、`group-members`、`group-bot-info`、`group-update`、`group-dissolve`、`send` 以及会话状态操作：`pin`、`unpin`、`mark`、`unmark`、`mute`、`unmute`、`done`、`inbox`、`box`、`unbox`、`read`、`unread`。其中，`send` 在受限会话配置下仅支持普通文本，不支持 @ 或引用回复。
+按会话限制时，可授权 `chat-info`、`chat-state`、`history`、`messages-export`、`group-members`、`group-settings`、`group-admins`、`group-join-history`、`group-requests`、`group-post-users`、`group-update`、`group-dissolve`、`send` 以及会话状态操作：`pin`、`unpin`、`mark`、`unmark`、`mute`、`unmute`、`done`、`inbox`、`box`、`unbox`、`read`、`unread`。其中，`send` 在受限会话配置下仅支持普通文本，不支持 @ 或引用回复。群成员移除、退群、群主转让、管理员设置、入群审批、发言权限、群设置和生成邀请链接也可分别授权，并受 `chatIds` 限制。`group-settings-set` 可改变群的多种权限和公开设置，`group-link` 可生成允许他人入群的链接，应仅按需授权。
 
 `minutes-export`、`minutes-access-info` 和 `minutes-request-access` 按 `minuteTokens` 限制；申请权限会向妙记所有者提交请求。`minutes-list` 除须在 `allow` 中授权外，还必须同时开启 `allowGlobal` 和 `allowAllMinutes`。
 

@@ -286,14 +286,28 @@ message PatchGroupChatRequest {
   optional int64 chatId = 1;
   optional string name = 2;
   optional string description = 4;
+  optional string announcement = 5;
+  optional int64 ownerId = 6;
+  optional bool offEditInfo = 14;
+  optional GroupEntitySetting entitySetting = 16;
+  repeated int32 updateEntitySettingFields = 17 [packed=false];
   optional bool isDissolved = 18;
+  optional bool isPublicV2 = 19;
+  optional GroupGeneralSetting generalSetting = 21;
+  repeated int32 updateGeneralSettingFields = 22 [packed=false];
   repeated UpdateFields updateFields = 999;
 
   enum UpdateFields {
     UPDATE_FIELDS_UNSPECIFIED = 0;
     NAME = 1;
     DESCRIPTION = 3;
+    ANNOUNCEMENT = 4;
+    OWNER_ID = 5;
+    OFF_EDIT_INFO = 14;
+    ENTITY_SETTING = 15;
     IS_DISSOLVED = 16;
+    IS_PUBLIC_V2 = 23;
+    GENERAL_CHAT_SETTING = 41;
   }
 }
 
@@ -343,12 +357,20 @@ message Chat {
   optional int32 lastMessagePosition = 15;
   optional int32 userCount = 16;
   optional int64 createTime = 18;
+  optional int32 role = 20;
+  optional bool offEditGroupChatInfo = 23;
   optional string tenantId = 25;
+  optional GroupEntitySetting chatEntitySetting = 28;
   optional bool isDissolved = 30;
   optional string lastVisibleMessageId = 32;
   optional int32 readPosition = 48;
   optional int32 lastVisibleMessagePosition = 46;
   optional bool isCrossTenant = 41;
+  optional bool isPublicV2 = 109;
+  optional int32 postType = 110;
+  optional bool allowPost = 111;
+  optional bool isAdmin = 126;
+  optional GroupGeneralSetting chatGeneralSetting = 136;
   optional Announcement announcement = 24;
 
   enum ChatTypeEnum {
@@ -647,3 +669,43 @@ message PullUnreadAtMessageIdsRequest { optional int32 version = 1; repeated int
 message PullUnreadAtMessageIdsResponse { repeated string messageIds = 1; map<string, string> messageThreadIds = 2; }
 message PullMessagesByIdsRequest { repeated string messageIds = 1; }
 message PullMessagesByIdsResponse { map<string, MessageEntity> messages = 1; }
+
+// Group membership and management over the personal-user gateway.
+message DeleteChatChatterRequest { optional string chatId = 1; repeated string chatterIds = 2; optional string newOwnerId = 3; optional DeleteChatChatterOption option = 4; }
+message DeleteChatChatterOption { optional bool withdraw = 1; }
+message DeleteChatChatterResponse { optional Chat chat = 1; optional int64 chatChatterVersion = 2; optional int64 syncCursor = 3; }
+message GroupAdminUser { optional int64 userId = 1; optional int64 orderWeight = 2; }
+message PullChatAdminUsersRequest { optional string chatId = 1; }
+message PullChatAdminUsersResponse { repeated GroupAdminUser adminUsers = 1; optional int64 updateVersion = 2; }
+message PatchChatAdminUsersRequest { optional string chatId = 1; repeated string toAddUserIds = 2; repeated string toDelUserIds = 3; }
+message PatchChatAdminUsersResponse { repeated GroupAdminUser users = 1; optional int64 updateVersion = 3; }
+message PatchChatPostUserRequest { optional string chatId = 1; optional int32 postType = 2; repeated string toAddUserIds = 3; repeated string toDelUserIds = 4; }
+message PatchChatPostUserResponse {}
+message PullChatJoinLeaveHistoryRequest { optional int64 chatId = 1; optional int64 cursor = 2; optional int32 count = 3; }
+message PullChatJoinLeaveHistoryResponse { repeated GroupMembershipHistory chatterHistory = 1; optional bool hasMore = 2; optional string nextCursor = 3; }
+message GroupMembershipHistory { optional string id = 1; optional int32 action = 2; optional int32 event = 3; optional string chatterId = 4; optional string chatId = 5; optional int64 createTime = 6; optional int32 chatterType = 8; }
+message GroupEntitySetting {
+  optional int32 addMemberPermissionSetting = 1; optional int32 atAllPermissionSetting = 2;
+  optional int32 joinMessageVisibleSetting = 3; optional int32 quitMessageVisibleSetting = 4;
+  optional int32 shareCardPermissionSetting = 5; optional int32 addMemberApplySetting = 6;
+  optional int32 threadAnonymousSetting = 7; optional int32 messageVisibilitySetting = 8;
+  optional GroupAnonymousSetting anonymousSetting = 9; optional int32 createUrgentSetting = 10;
+  optional int32 createVideoConferenceSetting = 11; optional int32 pinPermissionSetting = 12;
+  optional int32 topNoticePermissionSetting = 13; optional int32 chatTabPermissionSetting = 14;
+  optional int32 chatDisplayModeSetting = 15; optional int32 adminPostSetting = 16;
+  optional int32 chatPinPermissionSetting = 17; optional int32 userCountVisibleSetting = 18;
+}
+message GroupAnonymousSetting { optional bool isAllowAnonymous = 1; optional bool isVisible = 2; }
+message GroupGeneralSetting { optional GroupRestrictedMode restrictedModePermissionSetting = 1; optional int32 defDisplaySetting = 2; }
+message GroupRestrictedMode { optional bool status = 1; optional int32 transmitPermissionSetting = 2; optional int32 copyPermissionSetting = 3; optional int32 downloadPermissionSetting = 4; optional int32 screenshotPermissionSetting = 5; optional GroupAutoDelete onTimeDelMsgPermissionSetting = 6; optional GroupWhitelist whiteListSetting = 7; }
+message GroupAutoDelete { optional bool status = 1; optional int64 aliveTime = 2; }
+message GroupWhitelist { optional int32 level = 1; repeated int64 addUserIds = 2 [packed=false]; repeated int64 delUserIds = 3 [packed=false]; repeated int64 userIds = 4 [packed=false]; optional bool hitWhitelist = 5; }
+message PullChatPostUserByChatIDRequest { optional string chatId = 1; }
+message PullChatPostUserByChatIDResponse { repeated string userIds = 1; }
+message PullChatLinkTokenRequest { optional string chatId = 1; optional int32 expiredDay = 2; optional string appName = 3; optional bool isUnlimited = 4; optional int32 targetScene = 5; }
+message PullChatLinkTokenResponse { optional string token = 1; optional int64 expireTime = 2; optional string sharedUrl = 3; optional string kouLing = 4; optional bool isUnlimited = 5; }
+message GroupJoinApplication { optional string reason = 1; optional int32 status = 2; optional int64 time = 3; optional int32 applyWays = 4; optional string inviterId = 5; optional string inviteeId = 6; optional string joinToken = 7; optional int64 teamId = 8; optional string teamName = 9; }
+message PullAddChatChatterApplyRequest { optional string chatId = 1; optional int64 cursor = 2; }
+message PullAddChatChatterApplyResponse { repeated GroupJoinApplication applies = 1; optional int64 nextCursor = 2; }
+message PatchAddChatChatterApplyRequest { optional string chatId = 1; optional bool showBanner = 2; optional string inviteeId = 3; optional int32 status = 4; }
+message PatchAddChatChatterApplyResponse {}

@@ -33,6 +33,11 @@ const routes = {
   'chat-open': ['client', 'openChat', 'allChats'],
   'chat-info': ['client', 'chatInfo', 'chatArg'], 'chat-state': ['controls', 'state', 'chatArg'],
   history: ['client', 'historyPages', 'chatObject'], 'messages-export': ['client', 'historyPages', 'chatObject'],
+  'group-link': ['groups','link','chatObject'], 'group-requests': ['groups','requests','chatObject'], 'group-request-approve': ['groups','reviewRequest','chatObject'], 'group-request-reject': ['groups','reviewRequest','chatObject'], 'group-post-users': ['groups','postUsers','chatObject'],
+  'group-settings': ['groups','info','chatObject'], 'group-settings-set': ['groups','setSettings','chatObject'],
+  'group-admins': ['groups','admins','chatObject'], 'group-admin-add': ['groups','setAdmins','chatObject'], 'group-admin-remove': ['groups','setAdmins','chatObject'],
+  'group-remove': ['groups','remove','chatObject'], 'group-leave': ['groups','leave','chatObject'], 'group-owner': ['groups','setOwner','chatObject'],
+  'group-post-set': ['groups','setPost','chatObject'], 'group-join-history': ['groups','history','chatObject'],
   'group-members': ['client', 'members', 'chatObject'], 'group-bot-info': ['client', 'botProtection', 'chatObject'],
   'group-update': ['client', 'updateGroup', 'chatObject'], 'group-dissolve': ['client', 'dissolveGroup', 'chatArg'],
   'group-create': ['client', 'createGroup', 'allChats'], 'group-invite': ['client', 'invite', 'allChats'],
@@ -55,7 +60,7 @@ const routes = {
 };
 const writes = new Set(['send', 'pin', 'unpin', 'mark', 'unmark', 'mute', 'unmute', 'done', 'inbox', 'box', 'unbox', 'read', 'unread',
   'label-create', 'label-rename', 'label-delete', 'label-add', 'label-remove', 'chat-open', 'group-create', 'group-invite',
-  'group-update', 'group-dissolve', 'group-bot-protection', 'message-edit', 'message-forward', 'message-recall', 'favorite-add',
+  'group-update', 'group-dissolve', 'group-bot-protection', 'group-settings-set', 'group-admin-add', 'group-admin-remove', 'group-remove', 'group-leave', 'group-owner', 'group-post-set', 'group-link', 'group-request-approve', 'group-request-reject', 'message-edit', 'message-forward', 'message-recall', 'favorite-add',
   'favorite-remove', 'reaction-add', 'reaction-remove', 'minutes-request-access', 'send-file', 'send-image', 'sidebar-set', 'task-create', 'task-update', 'task-complete', 'task-reopen', 'task-delete', 'event-create', 'event-update', 'event-delete', 'event-share', 'event-reply', 'calendar-create', 'calendar-update', 'calendar-delete', 'calendar-subscribe', 'calendar-unsubscribe']);
 
 export function brokerCommands() {
@@ -129,6 +134,8 @@ export function authorize(policy, request) {
   const chatAllowed = id => numeric(id) && (policy.allowAllChats || policy.chatIds.includes(id));
   if (scope === 'global' && !policy.allowGlobal) denied();
   if (['calendar-subscribe', 'calendar-unsubscribe'].includes(request.command) && (args.length !== 1 || !object(args[0]) || args[0].subscribe !== (request.command === 'calendar-subscribe'))) denied();
+  if (['group-request-approve', 'group-request-reject'].includes(request.command) && (args.length !== 1 || !object(args[0]) || args[0].approve !== (request.command === 'group-request-approve'))) denied();
+  if (['group-admin-add', 'group-admin-remove'].includes(request.command) && (args.length !== 1 || !object(args[0]) || args[0].enabled !== (request.command === 'group-admin-add'))) denied();
   if (['task-complete', 'task-reopen'].includes(request.command) && (args.length !== 1 || !object(args[0]) || args[0].completed !== (request.command === 'task-complete'))) denied();
   if (['allChats', 'labelTrue', 'labelFalse', 'reactionAdd', 'reactionRemove'].includes(scope) && (!policy.allowGlobal || !policy.allowAllChats)) denied();
   if (scope === 'allMinutes' && (!policy.allowGlobal || !policy.allowAllMinutes)) denied();
@@ -146,7 +153,18 @@ export function authorize(policy, request) {
     const keys = scope === 'send' ? ['chatId', 'text', 'mentions', 'replyTo', 'replyRoot']
       : method === 'historyPages' ? ['chatId', 'limit', 'start', 'pages', 'query', 'sender', 'after', 'before']
         : method === 'members' ? ['chatId', 'cursor', 'offset', 'limit']
-          : method === 'updateGroup' ? ['chatId', 'name', 'description'] : ['chatId', 'botId'];
+          : method === 'updateGroup' ? ['chatId', 'name', 'description']
+            : method === 'info' || method === 'admins' || method === 'postUsers' ? ['chatId']
+              : method === 'link' ? ['chatId','days','unlimited']
+                : method === 'requests' ? ['chatId','cursor']
+                  : method === 'reviewRequest' ? ['chatId','userId','approve']
+              : method === 'setSettings' ? ['chatId','settings']
+                : method === 'setAdmins' ? ['chatId','userIds','enabled']
+                  : method === 'remove' ? ['chatId','userIds']
+                    : method === 'leave' ? ['chatId','newOwnerId']
+                      : method === 'setOwner' ? ['chatId','userId']
+                        : method === 'setPost' ? ['chatId','mode','addUsers','removeUsers']
+                          : method === 'history' ? ['chatId','cursor','count'] : ['chatId', 'botId'];
     if (!only(args[0], keys)) denied();
     // A reply ID may refer to another chat, and mentions can notify additional users.
     if (scope === 'send' && !policy.allowAllChats && (args[0].replyTo || args[0].replyRoot || (args[0].mentions?.length ?? 0) !== 0)) denied();

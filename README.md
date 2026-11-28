@@ -57,6 +57,7 @@ npx --registry=https://registry.npmjs.org/ skills add NWYLZW/larkmate --skill la
   - [x] 发送图片消息、下载图片或附件
   - [x] 给消息添加和取消表情回应
   - [x] 获取消息链接
+  - [x] 监听指定会话的新消息，支持本地服务和规则触发脚本
 - 群聊
   - [x] 查询群信息、成员、管理员和入退群记录
   - [x] 修改群名称、描述、头像和本人群昵称

@@ -26,6 +26,7 @@ message Packet {
   optional uint32 status = 4;
   optional bytes payload = 5;
   optional string cid = 6;
+  repeated int64 compactedSids = 13 [packed=false];
 }
 
 enum PayloadType {
@@ -94,6 +95,9 @@ message PushMessagesRequest {
   map<string, bool> forcePush = 8;
   map<string, bool> messagesAtMe = 9;
 }
+message PullPacketsBySidsRequest { repeated string sids = 1; }
+message PullPacketsBySidsResponse { map<string, Packet> packets = 1; }
+message PushBatchCopyMessages { repeated int64 messageIds = 1 [packed=false]; optional MessageEntity lastMessage = 3; }
 
 message MessageEntity {
   optional string id = 1;

@@ -15,10 +15,12 @@ import { FeedGroups } from '../src/feed-groups.js';
 import { Tasks } from '../src/tasks.js';
 import { Calendar } from '../src/calendar.js';
 import { GroupManagement, groupSettingsSchema } from '../src/group-management.js';
+import { listen } from '../src/listen.js';
+import { createRuleOutput, loadListenRules, startListenService } from '../src/listen-modes.js';
 
 const defaultTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const program = new Command();
-program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.15');
+program.name('larkmate').description('Operate Feishu as the logged-in user.').version('0.1.16');
 program.option('--credentials-file <path>', 'read LarkMate credentials.json');
 program.option('--broker <path>', 'use a restricted local broker socket (or LARKMATE_BROKER)');
 program.option('--broker-token-file <path>', 'read the agent token (or LARKMATE_BROKER_TOKEN_FILE)');
@@ -137,6 +139,34 @@ program.command('status').description('Check the current user login.')
 program.command('search').description('Search users, bots and groups.')
   .requiredOption('--query <text>', 'search text')
   .action(async options => output(await (await client()).search(options.query)));
+program.command('listen').description('Stream new messages from selected chats as JSON lines.')
+  .requiredOption('--chat <id>', 'numeric chat ID; repeatable', collect, [])
+  .action(async o => {
+    if (configuredBroker() || configuredBrokerToken() || configuredDelegate()) throw new FeishuError('UNSUPPORTED_MODE', 'Message listening is not available through broker or OS delegation.');
+    const controller = new AbortController(), stop = () => controller.abort();
+    process.once('SIGINT', stop); process.once('SIGTERM', stop);
+    try { await listen({ gateway: new Gateway({ cookie: await loadCookie({ file: program.opts().credentialsFile }) }), chatIds: o.chat, signal: controller.signal }); }
+    finally { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
+  });
+program.command('listen-service').description('Serve selected chat messages on a private Unix socket.')
+  .requiredOption('--chat <id>', 'numeric chat ID; repeatable', collect, []).requiredOption('--socket <path>', 'absolute Unix socket path')
+  .action(async o => {
+    if (configuredBroker() || configuredBrokerToken() || configuredDelegate()) throw new FeishuError('UNSUPPORTED_MODE', 'Message listening is not available through broker or OS delegation.');
+    const service = await startListenService(o.socket), controller = new AbortController(), stop = () => controller.abort();
+    process.once('SIGINT', stop); process.once('SIGTERM', stop);
+    try { process.stderr.write(`LarkMate: event socket ${service.path}\n`); await listen({ gateway:new Gateway({cookie:await loadCookie({file:program.opts().credentialsFile})}),chatIds:o.chat,output:service.output,signal:controller.signal }); }
+    finally { await service.close(); process.removeListener('SIGINT',stop);process.removeListener('SIGTERM',stop); }
+  });
+program.command('listen-run').description('Run configured scripts for matching new messages.')
+  .requiredOption('--rules <path>', 'protected JSON rules file')
+  .action(async o => {
+    if (configuredBroker() || configuredBrokerToken() || configuredDelegate()) throw new FeishuError('UNSUPPORTED_MODE', 'Message listening is not available through broker or OS delegation.');
+    const config=await loadListenRules(o.rules), gateway=new Gateway({cookie:await loadCookie({file:program.opts().credentialsFile})}), self=await gateway.authenticate();
+    const sink=createRuleOutput({...config,selfId:self.id}), controller=new AbortController(), stop=()=>controller.abort();
+    process.once('SIGINT',stop);process.once('SIGTERM',stop);
+    try { await listen({ gateway,chatIds:config.chatIds,output:sink,signal:controller.signal }); }
+    finally { await new Promise(resolve=>sink.end(resolve)); process.removeListener('SIGINT',stop);process.removeListener('SIGTERM',stop); }
+  });
 program.command('search-messages').description('Search accessible messages across conversations.')
   .requiredOption('--query <text>', 'search text')
   .option('--limit <number>', 'results per page, 1 to 100', '20')
